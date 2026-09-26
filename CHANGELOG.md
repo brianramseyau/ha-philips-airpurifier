@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Calendar Versioning](https://calver.org/) (`YYYY.MM.PATCH`).
 
+## [2026.10.1] - 2026-09-26
+
+### Changed
+
+- The integration manifest now identifies this fork: `codeowners`, `documentation`, and
+  `issue_tracker` point at `brianramseyau/ha-philips-airpurifier`, so the HACS card and the
+  integration's "Documentation" and "Issues" links in Home Assistant no longer reference the
+  upstream repo. No functional changes.
+
 ## [2026.10.0] - 2026-09-26
 
 ### Fixed
@@ -169,6 +178,7 @@ Latest release prior to this changelog being introduced. See the
 [GitHub releases](https://github.com/ruaan-deysel/ha-philips-airpurifier/releases)
 for the history of earlier versions.
 
+[2026.10.1]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.10.0...v2026.10.1
 [2026.10.0]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.9.0...v2026.10.0
 [2026.9.0]: https://github.com/ruaan-deysel/ha-philips-airpurifier/compare/v2026.8.0...v2026.9.0
 [2026.6.0]: https://github.com/ruaan-deysel/ha-philips-airpurifier/releases/tag/v2026.6.0
