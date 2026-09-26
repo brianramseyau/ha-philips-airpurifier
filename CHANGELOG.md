@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Calendar Versioning](https://calver.org/) (`YYYY.MM.PATCH`).
 
+## [Unreleased]
+
+### Added
+
+- **CX3120** now exposes the **Beep** switch (CoAP key `D03130`), matching the
+  HU1509/HU1510 and the other CX-series models. The device supports it — the
+  Philips Air+ app shows the setting and the device reports `D03130` — but the
+  model configuration omitted it, so no Beep entity was created.
+
+### Fixed
+
+- The **CX3120** climate entity's **Auto+** preset now shows a proper label and
+  icon. The climate `preset_mode` translations and icons only covered `auto`,
+  `high`, `medium`, `low` and `ventilation`, so the `auto_plus` preset fell
+  back to its raw key in the mode dropdown and the Preset mode tile. Labels
+  were added to `strings.json`, `en.json`, `de.json` and `bg.json` (reusing
+  each file's fan-section translation), and `mdi:autorenew` to `icons.json`
+  (matching the fan preset).
+
 ## [2026.10.1] - 2026-09-26
 
 ### Changed

@@ -1446,7 +1446,7 @@ DEVICE_MODELS: dict[str, DeviceModelConfig] = {
         unavailable_sensors=[PhilipsApi.NEW2_FAN_SPEED, PhilipsApi.NEW2_GAS],
         selects=[PhilipsApi.NEW2_TIMER2],
         numbers=[PhilipsApi.NEW2_TARGET_TEMP],
-        switches=[PhilipsApi.NEW2_CHILD_LOCK],
+        switches=[PhilipsApi.NEW2_CHILD_LOCK, PhilipsApi.NEW2_BEEP],
         heaters=[PhilipsApi.NEW2_TARGET_TEMP],
     ),
     # =========================================================================

@@ -117,6 +117,7 @@
             "name": "Voreinstellung",
             "state": {
               "auto": "Auto",
+              "auto_plus": "Auto+",
               "high": "Hoch",
               "medium": "Mittel",
               "low": "Niedrig",
