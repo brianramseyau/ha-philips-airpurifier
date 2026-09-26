@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Calendar Versioning](https://calver.org/) (`YYYY.MM.PATCH`).
 
+## [Unreleased]
+
+### Added
+
+- **CX3120** now exposes the **Beep** switch (CoAP key `D03130`), matching the
+  HU1509/HU1510 and the other CX-series models. The device supports it — the
+  Philips Air+ app shows the setting and the device reports `D03130` — but the
+  model configuration omitted it, so no Beep entity was created.
+
 ## [2026.10.1] - 2026-09-26
 
 ### Changed
