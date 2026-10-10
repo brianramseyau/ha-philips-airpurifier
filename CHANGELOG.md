@@ -7,6 +7,14 @@ and this project adheres to [Calendar Versioning](https://calver.org/) (`YYYY.MM
 
 ## [Unreleased]
 
+### Changed
+
+- The **Lamp mode** select (`Off` / `Humidity` / `Ambient`) is no longer tagged
+  as a configuration entity, so it now appears in the device's **Controls**
+  section and on the auto-generated dashboard card instead of being hidden
+  under **Configuration**. Affects the models that use `D03135#2`:
+  HU1509/HU1510, HU4209/00 and HU5710.
+
 ### Fixed
 
 - The **HU1509/HU1510/HU4209** status nudge no longer lights the unit's lamp.
