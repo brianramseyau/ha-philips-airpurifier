@@ -183,9 +183,26 @@ class PhilipsAirPurifierCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         return [(key, transient), (key, resting)]
 
-    async def _async_nudge_fetch(self) -> dict[str, Any]:
+    @staticmethod
+    def _apply_nudge_restore(status: dict[str, Any], nudge: list[tuple[str, Any]]) -> dict[str, Any]:
+        """Pin a nudged key to the value the nudge deliberately restored.
+
+        The observation used to force a push can resolve on the status produced
+        by the transient (first) write instead of the resting (last) one. If
+        that intermediate value were published, it would become the "last
+        known" value for the key, so the next nudge would restore the wrong
+        value -- on the push-only humidifiers this left the light on after every
+        reconnect. Override the nudged key with the value the sequence ends on
+        so the restore baseline stays correct.
+        """
+        if nudge:
+            key, resting = nudge[-1]
+            if key in status:
+                status[key] = resting
+        return status
+
+    async def _async_nudge_fetch(self, nudge: list[tuple[str, Any]]) -> dict[str, Any]:
         """Fetch a status snapshot from a device that only pushes on change."""
-        nudge = self._build_status_nudge()
         return await async_fetch_status_with_nudge(self.host, nudge, create_client=CoAPClient.create)
 
     async def _async_refresh_via_nudge(self) -> None:
@@ -196,7 +213,8 @@ class PhilipsAirPurifierCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # after this would attach to the connection the nudge just evicted.
         with contextlib.suppress(Exception):
             await asyncio.wait_for(self.client.shutdown(), timeout=SHUTDOWN_TIMEOUT)
-        status = await self._async_nudge_fetch()
+        nudge = self._build_status_nudge()
+        status = self._apply_nudge_restore(await self._async_nudge_fetch(nudge), nudge)
         self.client = await async_create_client(self.host, create_client=CoAPClient.create)
         self._timeout = DEFAULT_TIMEOUT
         self._last_update = asyncio.get_event_loop().time()
@@ -213,7 +231,8 @@ class PhilipsAirPurifierCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._mark_available()
                 return self.data
             try:
-                return await self._async_nudge_fetch()
+                nudge = self._build_status_nudge()
+                return self._apply_nudge_restore(await self._async_nudge_fetch(nudge), nudge)
             except Exception as err:
                 self._mark_unavailable("status update failed")
                 msg = f"Error communicating with device at {self.host}"

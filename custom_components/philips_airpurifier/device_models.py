@@ -680,15 +680,21 @@ _CONFIG_AC5659 = DeviceModelConfig(
 
 # Newer firmware on some HU1509/HU1510/HU4209 units never answers a status
 # read; it only pushes status to observers on a real state change (the same
-# push-only behavior already handled for CX7550). Toggle the
-# display backlight (D03105#2) to force the push. NEW2_DISPLAY_BACKLIGHT4 uses
-# the same off/medium/on codes (0/115/123) as NEW2_DISPLAY_BACKLIGHT2/3, which
-# are already confirmed from device captures on the CX7550/CX3550 family. See
+# push-only behavior already handled for CX7550). The nudge must write a key
+# whose value *changes* to force that push.
+#
+# Do NOT nudge the display backlight (D03105) on this family. It drives the
+# unit's light, so the transient write visibly lights it up -- and because the
+# observation returns the push caused by that transient write, the light was
+# left on at medium (115) after every reconnect/watchdog cycle. Toggle the
+# standby-sensors setting (D03134) instead: on-device testing confirmed it
+# pushes in both directions and it drives no light. See
 # coordinator._build_status_nudge for how the (transient, resting) pair is
-# used to avoid clobbering the user's display setting on every reconnect.
+# used, and coordinator._apply_nudge_restore for why the resting value is
+# pinned into the published status.
 _HU1509_STATUS_NUDGE: list[tuple[str, Any]] = [
-    (PhilipsApi.NEW2_DISPLAY_BACKLIGHT4, 0),
-    (PhilipsApi.NEW2_DISPLAY_BACKLIGHT4, 115),
+    (PhilipsApi.NEW2_STANDBY_SENSORS, 0),
+    (PhilipsApi.NEW2_STANDBY_SENSORS, 1),
 ]
 
 # HU1509/HU1510 config (both map to PhilipsHU1510 class in model_to_class)
