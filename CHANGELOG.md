@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Calendar Versioning](https://calver.org/) (`YYYY.MM.PATCH`).
 
-## [Unreleased]
+## [2026.10.3] - 2026-10-10
 
 ### Changed
 
@@ -220,7 +220,7 @@ Latest release prior to this changelog being introduced. See the
 [GitHub releases](https://github.com/ruaan-deysel/ha-philips-airpurifier/releases)
 for the history of earlier versions.
 
-[Unreleased]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.10.2...HEAD
+[2026.10.3]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.10.2...v2026.10.3
 [2026.10.2]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.10.1...v2026.10.2
 [2026.10.1]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.10.0...v2026.10.1
 [2026.10.0]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.9.0...v2026.10.0
