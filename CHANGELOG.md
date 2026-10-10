@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Calendar Versioning](https://calver.org/) (`YYYY.MM.PATCH`).
 
-## [Unreleased]
+## [2026.10.4] - 2026-10-10
 
 ### Added
 
@@ -13,6 +13,13 @@ and this project adheres to [Calendar Versioning](https://calver.org/) (`YYYY.MM
 
 ### Fixed
 
+- The **Ambient light mode** select (`Off` / `Warm` / `Dawn` / `Calm` /
+  `Breath`) now shows `Off` instead of `unknown` when the unit reports its
+  resting value `0`. `AMBIENT_LIGHT_MODE_MAP` was missing the `0` key, so
+  `current_option` returned `None`; it now mirrors the lamp-mode maps by
+  mapping `0` to `Off`, which also makes `Off` selectable and writes `0` back
+  to the device. Affects the **AC2221**, **AC3210/AC3220/AC3221**, **HU1509**
+  and **HU5710**.
 - Eliminated Python 3.14 compile-time `SyntaxWarning: 'return' in a 'finally' block` originating from the aiocoap tinydtls transport by preloading the transport in the off-loop worker thread under a scoped warning filter ([#127](https://github.com/ruaan-deysel/ha-philips-airpurifier/issues/127)).
 - Replaced deprecated `DeviceEntry.config_entries` and direct `.devices.values()` access in diagnostics with `dr.async_entries_for_config_entry()` to remain fully compatible with Home Assistant 2026.10.0+ integration quality scale requirements.
 - Updated schema validation and type annotations to support Home Assistant 2026.10.0+ (`probatio` schema builder, `RepairsFlowResult`, and relocated entity platform constants).
@@ -238,7 +245,7 @@ Latest release prior to this changelog being introduced. See the
 [GitHub releases](https://github.com/ruaan-deysel/ha-philips-airpurifier/releases)
 for the history of earlier versions.
 
-[Unreleased]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.10.3...HEAD
+[2026.10.4]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.10.3...v2026.10.4
 [2026.10.3]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.10.2...v2026.10.3
 [2026.10.2]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.10.1...v2026.10.2
 [2026.10.1]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.10.0...v2026.10.1
