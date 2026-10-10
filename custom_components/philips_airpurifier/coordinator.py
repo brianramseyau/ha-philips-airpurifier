@@ -13,7 +13,7 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .client import async_create_client, async_fetch_status_with_nudge
-from .const import DOMAIN
+from .const import DEFAULT_MISSED_PACKAGE_COUNT, DOMAIN
 from .device_models import DEVICE_MODELS
 from .model import ApiGeneration, DeviceInformation, DeviceModelConfig
 
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-MISSED_PACKAGE_COUNT = 3
+MISSED_PACKAGE_COUNT = DEFAULT_MISSED_PACKAGE_COUNT
 DEFAULT_TIMEOUT = 60
 RECONNECT_INITIAL_DELAY = 5
 RECONNECT_MAX_DELAY = 60
@@ -62,6 +62,8 @@ class PhilipsAirPurifierCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         host: str,
         device_info: DeviceInformation,
         update_watchdog_enabled: bool = True,
+        missed_package_count_override: int | None = None,
+        missed_package_count: int | None = None,
     ) -> None:
         """Initialize the coordinator."""
         super().__init__(
@@ -73,7 +75,11 @@ class PhilipsAirPurifierCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.host = host
         self.device_info = device_info
 
+        if missed_package_count is not None and missed_package_count_override is None:
+            missed_package_count_override = missed_package_count
+
         self._status_nudge_enabled = bool(getattr(self.model_config, "status_nudge", None))
+        self._missed_package_count_override = missed_package_count_override
 
         self._update_watchdog_enabled = update_watchdog_enabled
         self._observe_task: asyncio.Task[None] | None = None
@@ -104,6 +110,13 @@ class PhilipsAirPurifierCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.last_update_success = True
             self.async_update_listeners()
         self._device_available = True
+
+    @property
+    def missed_package_count(self) -> int:
+        """Return the missed-package watchdog threshold for this device."""
+        if self._missed_package_count_override is not None:
+            return self._missed_package_count_override
+        return self.model_config.missed_package_count
 
     @property
     def model(self) -> str:
@@ -172,7 +185,7 @@ class PhilipsAirPurifierCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         resting = base[-1][1]
 
         # Restore the user's last-known value for the nudged key when we have it.
-        if self.data is not None and self.data.get(key) is not None:
+        if self.data and self.data.get(key) is not None:
             resting = self.data[key]
 
         # The transient write must differ from the resting value, otherwise the
@@ -227,7 +240,7 @@ class PhilipsAirPurifierCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # This firmware never answers a status read; ongoing state comes
             # from the observe stream. Return the last pushed status if we have
             # it, otherwise force one push via a nudge.
-            if self.data is not None:
+            if self.data:
                 self._mark_available()
                 return self.data
             try:
@@ -294,7 +307,9 @@ class PhilipsAirPurifierCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_watchdog(self) -> None:
         """Watch for missed updates and trigger reconnect if needed."""
         while True:
-            interval = NUDGE_WATCHDOG_TIMEOUT if self._status_nudge_enabled else self._timeout * MISSED_PACKAGE_COUNT
+            interval = (
+                NUDGE_WATCHDOG_TIMEOUT if self._status_nudge_enabled else self._timeout * self.missed_package_count
+            )
             await asyncio.sleep(interval)
             if self._last_update > 0:
                 elapsed = asyncio.get_event_loop().time() - self._last_update
@@ -410,7 +425,7 @@ class PhilipsAirPurifierCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._start_observing()
             return
 
-        if not self._update_watchdog_enabled and self.data is not None:
+        if not self._update_watchdog_enabled and self.data:
             self._last_update = asyncio.get_event_loop().time()
             self._mark_available()
             self._start_observing()
