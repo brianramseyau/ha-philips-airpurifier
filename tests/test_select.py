@@ -10,6 +10,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.philips_airpurifier.const import DOMAIN, PhilipsApi
 from custom_components.philips_airpurifier.select import (
+    PhilipsSelect,
     _remove_duplicate_preferred_index_entity,
     async_setup_entry as select_async_setup_entry,
 )
@@ -448,6 +449,68 @@ async def test_select_current_option_unknown_value_returns_none(
     await hass.async_block_till_done()
 
     assert entity.current_option is None
+
+
+@pytest.mark.parametrize(
+    ("raw_value", "expected_option"),
+    [
+        (0, "off"),
+        (1, "warm"),
+        (2, "dawn"),
+        (3, "calm"),
+        (4, "breath"),
+    ],
+)
+def test_ambient_light_mode_current_option(
+    raw_value: int,
+    expected_option: str,
+) -> None:
+    """Test ambient light mode maps raw 0 to off and 1-4 to the light modes."""
+    coordinator = SimpleNamespace(
+        data={PhilipsApi.NEW2_AMBIENT_LIGHT_MODE: raw_value},
+        device_id="device-01",
+        device_name="Bedroom",
+        model="HU1509/00",
+        mac=None,
+    )
+    entity = PhilipsSelect(coordinator, PhilipsApi.NEW2_AMBIENT_LIGHT_MODE)
+
+    assert entity.current_option == expected_option
+
+
+def test_ambient_light_mode_options_include_off() -> None:
+    """Test ambient light mode offers off so the resting value is selectable."""
+    coordinator = SimpleNamespace(
+        data={PhilipsApi.NEW2_AMBIENT_LIGHT_MODE: 0},
+        device_id="device-01",
+        device_name="Bedroom",
+        model="HU1509/00",
+        mac=None,
+    )
+    entity = PhilipsSelect(coordinator, PhilipsApi.NEW2_AMBIENT_LIGHT_MODE)
+
+    assert entity.options == ["off", "warm", "dawn", "calm", "breath"]
+
+
+async def test_ambient_light_mode_select_off_writes_zero() -> None:
+    """Test selecting off writes raw value 0 for the ambient light mode."""
+    coordinator = SimpleNamespace(
+        data={PhilipsApi.NEW2_AMBIENT_LIGHT_MODE: 1},
+        device_id="device-01",
+        device_name="Bedroom",
+        model="HU1509/00",
+        mac=None,
+        async_set_control_value=AsyncMock(),
+    )
+    entity = PhilipsSelect(coordinator, PhilipsApi.NEW2_AMBIENT_LIGHT_MODE)
+
+    with patch.object(PhilipsSelect, "_handle_coordinator_update"):
+        await entity.async_select_option("off")
+
+    coordinator.async_set_control_value.assert_awaited_once_with(
+        PhilipsApi.NEW2_AMBIENT_LIGHT_MODE,
+        0,
+    )
 
 
 async def test_select_setup_entry_ac4220_invokes_duplicate_cleanup(hass: HomeAssistant) -> None:

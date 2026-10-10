@@ -475,6 +475,7 @@ class PhilipsApi:
         2: FanAttributes.AMBIENT_LIGHT_MODE,
     }
     AMBIENT_LIGHT_MODE_MAP = {
+        0: FanAttributes.OFF,
         1: "warm",
         2: "dawn",
         3: "calm",
