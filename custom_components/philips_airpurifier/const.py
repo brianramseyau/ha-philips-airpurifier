@@ -954,7 +954,6 @@ SELECT_TYPES: dict[str, SelectDescription] = {
     },
     PhilipsApi.NEW2_LAMP_MODE2: {
         FanAttributes.LABEL: FanAttributes.LAMP_MODE,
-        CONF_ENTITY_CATEGORY: EntityCategory.CONFIG,
         OPTIONS: PhilipsApi.LAMP_MODE_MAP2,
     },
     PhilipsApi.NEW2_AMBIENT_LIGHT_MODE: {
