@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Calendar Versioning](https://calver.org/) (`YYYY.MM.PATCH`).
 
+## [Unreleased]
+
+### Fixed
+
+- The **HU1509/HU1510/HU4209** status nudge no longer lights the unit's lamp.
+  On these humidifiers the lamp brightness is `D03105` (mirrored to `D03104`),
+  which the nudge toggled to force a status push; worse, the "restore the
+  user's last-known value" logic re-read the value the nudge's own transient
+  write had just pushed, so it could never get back to the user's value and
+  the lamp was left on after every reconnect and watchdog cycle. The nudge now
+  toggles the standby-sensors setting (`D03134`, confirmed on-device to push in
+  both directions and to touch no light register), and the value the nudge
+  deliberately restores to is pinned into the published status so a nudge can
+  no longer poison its own restore baseline.
+
 ## [2026.10.2] - 2026-09-26
 
 ### Added
@@ -197,6 +212,7 @@ Latest release prior to this changelog being introduced. See the
 [GitHub releases](https://github.com/ruaan-deysel/ha-philips-airpurifier/releases)
 for the history of earlier versions.
 
+[Unreleased]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.10.2...HEAD
 [2026.10.2]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.10.1...v2026.10.2
 [2026.10.1]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.10.0...v2026.10.1
 [2026.10.0]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.9.0...v2026.10.0

@@ -679,7 +679,7 @@ async def test_async_shutdown_cancels_all_existing_tasks(hass: HomeAssistant) ->
 
 
 _COORD = "custom_components.philips_airpurifier.coordinator"
-_CX_STATUS = {"D01S05": "CX7550/01", "D03102": 1}
+_CX_STATUS = {"D01S05": "CX7550/01", "D03102": 1, "D03105": 115}
 
 
 @pytest.mark.unit
@@ -820,25 +820,25 @@ def test_build_status_nudge_empty_without_config(hass: HomeAssistant) -> None:
 @pytest.mark.unit
 @pytest.mark.parametrize("model", ["HU1509", "HU1510", "HU4209/00"])
 def test_build_status_nudge_hu1509_family(hass: HomeAssistant, model: str) -> None:
-    """HU1509/HU1510/HU4209 share the same push-only display-backlight nudge.
+    """HU1509/HU1510/HU4209 nudge the standby-sensors key, not the display light.
 
-    The model declares the suffixed NEW2_DISPLAY_BACKLIGHT4 key ("D03105#2")
-    to pick its value scheme, but the nudge must use the bare wire key
-    ("D03105") -- that's what the pushed status and every other write path
-    use -- otherwise the last-known-value restore below never matches.
+    Nudging the display backlight (D03105) lights the unit's light up and, with
+    the old restore behaviour, left it on after every reconnect. The family now
+    toggles the standby-sensors setting (D03134) instead, which was confirmed
+    on-device to push in both directions and to drive no light.
     """
     coordinator = _make_coordinator(hass, model=model)
 
-    assert coordinator._build_status_nudge() == [("D03105", 0), ("D03105", 115)]
+    assert coordinator._build_status_nudge() == [("D03134", 0), ("D03134", 1)]
 
 
 @pytest.mark.unit
 def test_build_status_nudge_hu1509_restores_last_known_value(hass: HomeAssistant) -> None:
-    """The suffix must be stripped before the last-known-value lookup, or it never matches."""
+    """The nudge ends on the user's last-known standby-sensors value."""
     coordinator = _make_coordinator(hass, model="HU1509")
-    coordinator.async_set_updated_data({"D03105": 0})
+    coordinator.async_set_updated_data({"D03134": 0})
 
-    assert coordinator._build_status_nudge() == [("D03105", 115), ("D03105", 0)]
+    assert coordinator._build_status_nudge() == [("D03134", 1), ("D03134", 0)]
 
 
 @pytest.mark.unit
