@@ -7,6 +7,11 @@ and this project adheres to [Calendar Versioning](https://calver.org/) (`YYYY.MM
 
 ## [Unreleased]
 
+### Fixed
+
+- Bumped `philips-airctrl` to 1.5.1 so an undecryptable status push no longer ends the
+  Observe stream (upstream issue [#44](https://github.com/tinkerologie/philips-airctrl/issues/44)).
+
 ## [2026.11.0] - 2026-11-20
 
 ### Changed
