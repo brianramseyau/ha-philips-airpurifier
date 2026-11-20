@@ -7,12 +7,12 @@ and this project adheres to [Calendar Versioning](https://calver.org/) (`YYYY.MM
 
 ## [Unreleased]
 
-## [2026.11.2] - 2026-11-20
+## [2026.11.0] - 2026-11-20
 
 ### Changed
 
-- Synced with upstream `2026.11.1`: Philips dashboard cards, device-scoped repairs,
-  Home Assistant 2026.11 readiness, CX5120 reconnect/nudge fixes, and dependency updates.
+- Synced with upstream through `2026.11.1`: Philips dashboard cards, device-scoped repairs,
+  Home Assistant 2026.11 readiness, CX5120 reconnect and swing fixes, and dependency updates.
 - The **Lamp mode** select (`Off` / `Humidity` / `Ambient`) is a primary device control
   rather than a configuration entity. Affects HU1509/HU1510, HU4209/00 and HU5710.
 - Fork builds keep the fork's manifest identity and require Home Assistant 2026.10.0.
@@ -29,11 +29,6 @@ and this project adheres to [Calendar Versioning](https://calver.org/) (`YYYY.MM
   AC3210/AC3220/AC3221, HU1509 and HU5710.
 - **CX3120** now exposes the `Beep` switch (`D03130`) alongside child lock.
 - **CX3120** climate `auto_plus` preset now has its `Auto+` label and icon.
-
-## [2026.11.1] - 2026-11-13
-
-### Fixed
-
 - CX5120 heaters with firmware 0.4.9 never answer the observation renewal, so the 60 s
   renewal of philips-airctrl turned into a reconnect and a display nudge every minute (a
   beep each time) until the device's CoAP stack stalled. Push-only models now renew the
@@ -43,21 +38,8 @@ and this project adheres to [Calendar Versioning](https://calver.org/) (`YYYY.MM
 - Repeated reconnect failures no longer spam the Home Assistant log with aiocoap task
   exceptions. philips-airctrl 1.5.0 tears each CoAP context down once, even when reconnect
   and unload overlap or a caller times out (#198).
-
-## [2026.11.0] - 2026-11-10
-
-### Changed
-
-- Development and HA Next use Home Assistant's official pytest plugin when available. The
-  Home Assistant 2026.9.0 compatibility job retains its isolated legacy harness (#193).
-
-### Fixed
-
 - Connectivity and filter repairs now belong to individual devices. Removing a device cleans
   up its repairs without affecting other devices (#188).
-- CX5120 heaters with firmware 0.4.9 (`AWS_Philips_AIR@86.1`) never answer a status read and
-  only push on a real state change, so setup timed out. The CX5120 now declares a status nudge
-  that toggles the display backlight (`D03105`) to elicit the first status push (#203).
 - Push-only status nudges time out stalled control writes and publish the acknowledged
   restored backlight value when the first device push still shows the transient value (#197).
 
@@ -387,8 +369,8 @@ Latest release prior to this changelog being introduced. See the
 [GitHub releases](https://github.com/tinkerologie/ha-philips-airpurifier/releases)
 for the history of earlier versions.
 
-[Unreleased]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.11.2...HEAD
-[2026.11.2]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.10.4...v2026.11.2
+[Unreleased]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.11.0...HEAD
+[2026.11.0]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.10.4...v2026.11.0
 [2026.10.1]: https://github.com/tinkerologie/ha-philips-airpurifier/compare/v2026.10.0...v2026.10.1
 [2026.10.0]: https://github.com/tinkerologie/ha-philips-airpurifier/compare/v2026.9.2...v2026.10.0
 [2026.9.2]: https://github.com/tinkerologie/ha-philips-airpurifier/compare/v2026.9.1...v2026.9.2
