@@ -5,8 +5,7 @@
       "already_configured": "Device already configured",
       "model_unsupported": "Model unsupported",
       "cannot_connect": "Cannot connect to device",
-      "different_device": "The device at this address is different from the original",
-      "reconfigure_successful": "Reconfiguration successful"
+      "different_device": "The device at this address is different from the original"
     },
     "step": {
       "user": {
@@ -62,6 +61,7 @@
               "night": "Night",
               "sleep": "Sleep",
               "sleep_allergy": "Sleep/Allergy",
+              "allergy_sleep": "Sleep/Allergy",
               "turbo": "Turbo",
               "medium": "Medium",
               "gas": "Gas",
@@ -195,9 +195,6 @@
       "pm25": {
         "name": "PM2.5"
       },
-      "gas": {
-        "name": "Gas"
-      },
       "total_volatile_organic_compounds": {
         "name": "Total volatile organic compounds"
       },
@@ -236,6 +233,12 @@
       },
       "nanoprotect_filter": {
         "name": "NanoProtect filter"
+      },
+      "gas_level": {
+        "name": "Gas"
+      },
+      "pre_filter_cleaning": {
+        "name": "Pre-filter"
       }
     },
     "switch": {
@@ -319,6 +322,7 @@
           "night": "Night",
           "sleep": "Sleep",
           "sleep_allergy": "Sleep/Allergy",
+          "allergy_sleep": "Sleep/Allergy",
           "turbo": "Turbo",
           "medium": "Medium",
           "gas": "Gas",
@@ -346,7 +350,20 @@
         "name": "Timer",
         "state": {
           "off": "Off",
-          "on": "On"
+          "on": "On",
+          "30min": "30 min",
+          "1h": "1 h",
+          "2h": "2 h",
+          "3h": "3 h",
+          "4h": "4 h",
+          "5h": "5 h",
+          "6h": "6 h",
+          "7h": "7 h",
+          "8h": "8 h",
+          "9h": "9 h",
+          "10h": "10 h",
+          "11h": "11 h",
+          "12h": "12 h"
         }
       }
     },
@@ -396,6 +413,18 @@
     },
     "set_child_lock_failed": {
       "message": "Set child lock failed for {entity_id}"
+    },
+    "cannot_connect": {
+      "message": "Failed to connect to device at {host}"
+    },
+    "update_failed": {
+      "message": "Error communicating with device at {host}"
+    },
+    "command_failed": {
+      "message": "Failed to send command to device at {host}"
+    },
+    "unknown_filter_type": {
+      "message": "Unknown filter type: {filter_type}"
     }
   },
   "services": {

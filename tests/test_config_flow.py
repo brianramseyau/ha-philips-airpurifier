@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+import asyncio
+from collections.abc import AsyncIterator
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.philips_airpurifier.const import (
     CONF_DEVICE_ID,
@@ -31,6 +32,8 @@ from .const import (
     TEST_MODEL,
     TEST_NAME,
 )
+
+from tests.harness import MockConfigEntry
 
 
 @pytest.fixture(autouse=True)
@@ -173,6 +176,54 @@ async def test_user_flow_status_nudge_fallback(
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_MODEL] == "CX7550"
+
+
+@pytest.mark.integration
+async def test_cx5120_setup_after_status_timeout(
+    hass: HomeAssistant,
+    mock_coap_client_config_flow: AsyncMock,
+) -> None:
+    """Set up a CX5120/11 using a push from its existing backlight control."""
+    status = {
+        PhilipsApi.NEW2_MODEL_ID: "CX5120/11",
+        PhilipsApi.NEW2_NAME: "Philips heater",
+        PhilipsApi.DEVICE_ID: TEST_DEVICE_ID,
+        PhilipsApi.WIFI_VERSION: "AWS_Philips_AIR@86.1",
+        PhilipsApi.NEW2_POWER: 1,
+    }
+    backlight_changed = asyncio.Event()
+    actions: list[str] = []
+
+    async def observe() -> AsyncIterator[dict[str, str | int]]:
+        actions.append("observe")
+        await backlight_changed.wait()
+        yield status
+
+    async def set_control_value(key: str, value: int) -> bool:
+        actions.append("write")
+        if (key, value) == ("D03105", 0):
+            backlight_changed.set()
+        return True
+
+    client = mock_coap_client_config_flow
+    client.get_status.side_effect = TimeoutError
+    client.get_device_info = AsyncMock(return_value={"modelid": "CX5120/11", "name": "Philips heater"})
+    client.observe_status = MagicMock(side_effect=observe)
+    client.set_control_value.side_effect = set_control_value
+
+    with (
+        patch("custom_components.philips_airpurifier.client.CoAPClient.create", AsyncMock(return_value=client)),
+        patch("custom_components.philips_airpurifier.client._NUDGE_REGISTER_DELAY", 0),
+        patch("custom_components.philips_airpurifier.coordinator.async_fetch_status_with_nudge", return_value=status),
+    ):
+        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], user_input={CONF_HOST: TEST_HOST})
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_MODEL] == "CX5120"
+    client.get_device_info.assert_awaited_once()
+    assert actions == ["observe", "write", "write"]
+    assert client.set_control_value.await_args_list == [call("D03105", 0), call("D03105", 100)]
 
 
 async def test_user_flow_status_nudge_fallback_hu1509(
@@ -729,7 +780,7 @@ async def test_reconfigure_flow_success(
     )
     entry.add_to_hass(hass)
 
-    with patch.object(hass.config_entries, "async_reload", new=AsyncMock(return_value=True)) as reload_mock:
+    with patch.object(hass.config_entries, "async_schedule_reload") as reload_mock:
         result = await hass.config_entries.flow.async_init(
             DOMAIN,
             context={"source": SOURCE_RECONFIGURE, "entry_id": entry.entry_id},
@@ -745,7 +796,8 @@ async def test_reconfigure_flow_success(
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
     assert entry.data[CONF_HOST] == TEST_HOST
-    reload_mock.assert_awaited_once_with(entry.entry_id)
+    assert entry.data[CONF_DEVICE_ID] == TEST_DEVICE_ID
+    reload_mock.assert_called_once_with(entry.entry_id)
 
 
 async def test_reconfigure_flow_invalid_host(
@@ -902,19 +954,6 @@ async def test_reconfigure_flow_different_device_abort(
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "different_device"
-
-
-async def test_reconfigure_flow_unknown_entry_id_aborts(
-    hass: HomeAssistant,
-) -> None:
-    """Test reconfigure flow aborts if entry_id does not exist."""
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN,
-        context={"source": SOURCE_RECONFIGURE, "entry_id": "missing-entry-id"},
-    )
-
-    assert result["type"] is FlowResultType.ABORT
-    assert result["reason"] == "cannot_connect"
 
 
 async def test_confirm_step(

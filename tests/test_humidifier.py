@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.philips_airpurifier.const import (
     CONF_DEVICE_ID,
@@ -15,12 +14,11 @@ from custom_components.philips_airpurifier.const import (
     DOMAIN,
     FanFunction,
 )
-from homeassistant.components.humidifier.const import (
+from homeassistant.components.humidifier import (
     ATTR_HUMIDITY,
     DOMAIN as HUMIDIFIER_DOMAIN,
 )
-from homeassistant.components.number import ATTR_VALUE, DOMAIN as NUMBER_DOMAIN
-from homeassistant.components.number.const import SERVICE_SET_VALUE
+from homeassistant.components.number import ATTR_VALUE, DOMAIN as NUMBER_DOMAIN, SERVICE_SET_VALUE
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import (
     ATTR_ENTITY_ID,
@@ -33,6 +31,8 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
+
+from tests.harness import MockConfigEntry
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -472,3 +472,15 @@ async def test_humidifier_set_humidity_without_existing_target_uses_input(
     await humidifier_entity.async_set_humidity(46)
 
     mock_humidifier_coap_client.set_control_values.assert_called_with(data={"rhset": 50})
+
+
+async def test_humidifier_publishes_model_specific_target_step(
+    hass: HomeAssistant,
+    init_hu_integration: MockConfigEntry,
+) -> None:
+    """Standalone humidifiers expose their actual five-percent target steps."""
+    entity_id = _get_humidifier_entity_id(hass, init_hu_integration)
+    state = hass.states.get(entity_id)
+    assert state is not None
+    assert state.attributes["target_humidity_step"] == 5
+    assert state.attributes["min_humidity"] == 30

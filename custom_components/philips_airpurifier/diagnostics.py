@@ -18,10 +18,24 @@ if TYPE_CHECKING:
 
 TO_REDACT = {
     "device_id",
+    "name",
+    "name_by_user",
+    "entry_title",
+    "entity_id",
+    "D01-03",
+    "D01S03",
+    "D01-05",
+    "D01S05",
+    "D01-21",
+    "D01S21",
     "DeviceId",
     "device_serial",
     "serial_number",
     "mac",
+    "macaddress",
+    "mac_address",
+    "MacAddress",
+    "MAC",
     "ip_address",
     "host",
     "ssid",
@@ -47,17 +61,8 @@ async def async_get_config_entry_diagnostics(
     device_registry = dr.async_get(hass)
     entity_registry = er.async_get(hass)
 
-    device_entry = None
-    try:
-        device_entries = dr.async_entries_for_config_entry(device_registry, entry.entry_id)
-        device_entry = device_entries[0] if device_entries else None
-    except AttributeError:
-        devices = getattr(device_registry, "devices", {})
-        device_list = devices.values() if hasattr(devices, "values") else devices
-        for device in device_list:
-            if entry.entry_id in getattr(device, "config_entries", ()):
-                device_entry = device
-                break
+    device_entries = dr.async_entries_for_config_entry(device_registry, entry.entry_id)
+    device_entry = device_entries[0] if device_entries else None
 
     entities = er.async_entries_for_config_entry(entity_registry, entry.entry_id)
 
@@ -89,10 +94,11 @@ async def async_get_config_entry_diagnostics(
             "state": entry.state.value,
         },
         "coordinator": {
-            "client_available": True,
+            "client_available": coordinator.last_update_success,
             "has_data": len(status) > 0,
             "status_keys": list(status.keys()),
         },
+        "connection": coordinator.connection_diagnostics(),
         "entities": {
             "total": len(entities),
             "details": [
@@ -121,6 +127,5 @@ async def async_get_config_entry_diagnostics(
 
     return cast(
         dict[str, Any],
-        # pyright: ignore[reportUnknownMemberType]
-        redact_helper.async_redact_data(diagnostics_data, TO_REDACT),
+        redact_helper.async_redact_data(diagnostics_data, TO_REDACT),  # pyright: ignore[reportUnknownMemberType]
     )

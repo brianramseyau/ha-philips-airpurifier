@@ -5,80 +5,212 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Calendar Versioning](https://calver.org/) (`YYYY.MM.PATCH`).
 
-## [2026.10.4] - 2026-10-10
-
-### Added
-
-- Added support for **AC3854/25** (4000i, Thailand/Asia variant) with five preset modes (`auto`, `sleep`, `speed_1`, `speed_2`, `turbo`), four fan speeds, display backlight and brightness lights, gas preferred index select, and child lock switch ([#122](https://github.com/ruaan-deysel/ha-philips-airpurifier/issues/122)).
+## [Unreleased]
 
 ### Fixed
 
-- The **Ambient light mode** select (`Off` / `Warm` / `Dawn` / `Calm` /
-  `Breath`) now shows `Off` instead of `unknown` when the unit reports its
-  resting value `0`. `AMBIENT_LIGHT_MODE_MAP` was missing the `0` key, so
-  `current_option` returned `None`; it now mirrors the lamp-mode maps by
-  mapping `0` to `Off`, which also makes `Off` selectable and writes `0` back
-  to the device. Affects the **AC2221**, **AC3210/AC3220/AC3221**, **HU1509**
-  and **HU5710**.
-- Eliminated Python 3.14 compile-time `SyntaxWarning: 'return' in a 'finally' block` originating from the aiocoap tinydtls transport by preloading the transport in the off-loop worker thread under a scoped warning filter ([#127](https://github.com/ruaan-deysel/ha-philips-airpurifier/issues/127)).
+- **HU1509/HU1510/HU4209 push-only firmware**: the status nudge now toggles the
+  standby-sensors setting (`D03134`) instead of the display backlight (`D03105`), so a
+  reconnect or watchdog cycle no longer lights the lamp. The nudge snapshot is also pinned
+  to the value the sequence restores, so a transient write cannot poison the restore
+  baseline and leave the light on.
+- **Ambient light mode** select now maps the resting value `0` to `Off` (mirroring the lamp
+  mode map), so it no longer renders `unknown` and `Off` can be selected. Affects AC2221,
+  AC3210/AC3220/AC3221, HU1509 and HU5710.
+- **CX3120** now exposes the `Beep` switch (`D03130`) alongside child lock.
+- **CX3120** climate `auto_plus` preset now has its `Auto+` label and icon.
+
+### Changed
+
+- The **Lamp mode** select (`Off` / `Humidity` / `Ambient`) is a primary device control
+  rather than a configuration entity. Affects HU1509/HU1510, HU4209/00 and HU5710.
+- Fork builds keep the fork's manifest identity and require Home Assistant 2026.10.0.
+
+## [2026.11.1] - 2026-11-13
+
+### Fixed
+
+- CX5120 heaters with firmware 0.4.9 never answer the observation renewal, so the 60 s
+  renewal of philips-airctrl turned into a reconnect and a display nudge every minute (a
+  beep each time) until the device's CoAP stack stalled. Push-only models now renew the
+  observation only at the nudge watchdog interval (30 min).
+- CX5120 swing now writes 17222, which the device accepts (it then reports 17920), instead of
+  17242 from `OSCILLATION_MAP2`, which it ignores.
+- Repeated reconnect failures no longer spam the Home Assistant log with aiocoap task
+  exceptions. philips-airctrl 1.5.0 tears each CoAP context down once, even when reconnect
+  and unload overlap or a caller times out (#198).
+
+## [2026.11.0] - 2026-11-10
+
+### Changed
+
+- Development and HA Next use Home Assistant's official pytest plugin when available. The
+  Home Assistant 2026.9.0 compatibility job retains its isolated legacy harness (#193).
+
+### Fixed
+
+- Connectivity and filter repairs now belong to individual devices. Removing a device cleans
+  up its repairs without affecting other devices (#188).
+- CX5120 heaters with firmware 0.4.9 (`AWS_Philips_AIR@86.1`) never answer a status read and
+  only push on a real state change, so setup timed out. The CX5120 now declares a status nudge
+  that toggles the display backlight (`D03105`) to elicit the first status push (#203).
+- Push-only status nudges time out stalled control writes and publish the acknowledged
+  restored backlight value when the first device push still shows the transient value (#197).
+
+### Security
+
+- Development dependencies only; the integration itself ships no Pillow or npm code. The
+  development lock overrides Home Assistant 2026.10's Pillow 12.3.0 pin with 13.0.0, which
+  fixes 32 advisories (including GHSA-5x8w-8jj5-q52h). Remove the override once the minimum
+  Home Assistant pins Pillow 13. markdownlint's `re2js` is overridden to 2.9.1
+  (GHSA-gg6h-894w-4m9c).
+
+## [2026.10.4] - 2026-10-29
+
+### Added
+
+- Releases ship `philips_airpurifier.zip` (#180), so HACS and the Home Assistant Marketplace
+  show a download count. The zip is reproducible, has a `SHA256SUMS` file and a signed build
+  provenance attestation, and is published through a draft as an immutable release. PR CI
+  builds it twice and checks the bytes match. The README explains manual zip installation
+  and verification.
+- Deprecation checks in CI (#181): tests fail on `DeprecationWarning`s raised from the
+  integration and on Home Assistant's deprecation log reports that name it, and
+  `script/import_smoke.py` imports every module in a clean interpreter.
+- Weekly `HA Next` workflow against the newest Home Assistant on PyPI (beta included) and
+  Core `dev`, keeping one `ha-next` issue per channel; a weekly `HA Dev Blog` watch opens one
+  `ha-dev-blog` issue per developer blog post that names code the integration uses.
+
+### Changed
+
+- Dashboard cards follow the Home Assistant 2026.10 design tokens (spacing, radius, typography,
+  semantic and state colours), with fallbacks for 2026.9, so they match user themes in light
+  and dark mode. Card accents follow the device state like the tile card (active, off,
+  unavailable), and the humidity card uses the humidifier state colour.
+- Card notices and errors are Home Assistant-style alerts; humidifier modes are a translated
+  segmented switch, and the target stepper uses 48px icon buttons.
+- Card accessibility: correct ARIA states for toggles and dialog openers, arrow-key navigation
+  in choice dialogs, visible focus rings, right-to-left support, and translated
+  Close/Cancel/Unknown labels. Masonry card sizes are more accurate, and the card editor
+  groups display options in a collapsible section.
+- `script/hassfest` supports Home Assistant 2026.11's `packages/hassfest` layout,
+  `HA_VERSION=<tag>` and `HA_VERSION=dev` (with `HA_CORE_REF=<commit>`).
+
+### Fixed
+
+- The heater (climate) entity uses the native temperature API on Home Assistant 2026.11 and
+  later, so Home Assistant no longer logs that `PhilipsHeater` provides the deprecated
+  `_attr_temperature_unit` and `target_temperature` (#179, #181). Earlier releases keep the
+  old members.
+- The heater reports its current temperature: it now reads the Gen3 `D03224` field (tenths
+  of a degree) that CX3120 and CX5120 heaters send, instead of a `temp` field they never
+  report, and follows device updates instead of keeping the value read at startup.
+- The Home Assistant 2026.9 minimum CI job runs again: Dependabot had raised the pinned
+  floor in `requirements_test_min.txt` to 2026.10.4, and no longer edits that file.
+
+## [2026.10.3] - 2026-10-28
+
+### Added
+
+- Three configurable, theme-aware Philips dashboard cards built with TypeScript 7 and Lit:
+  purifier controls and filter health, air quality, and humidity controls. Includes visual
+  editors, Sections sizing, accessible controls, and automatic versioned module loading.
+- Air-quality card shows an overall level with a summary, per-reading level meters,
+  a 24-hour PM2.5 trend and room humidity/temperature; the purifier card shows the
+  PM2.5 level and an Air+ style controls panel (power, child lock, mode sheet, display
+  light, fan speed, light ring and timer). Cards use Home Assistant design tokens for spacing, type and radius.
+- Browser interaction tests and CI checks for frontend types, dependencies, and bundle freshness.
+
+- Connection lifecycle logging for local outages (#172, see also #51): reconnect failures
+  name the stage (create, status or nudge) and the error type, successful reconnects
+  report the attempt count and outage length, the watchdog warning reports its interval
+  and the pushes received, and a silent new observation is logged once.
+- A `connection` section in diagnostics with availability, observation session pushes,
+  reconnect state, backoff and the stage and type of the last reconnect error.
+
+### Changed
+
+- Require Home Assistant 2026.9.0 or later in HACS.
+- Update `philips-airctrl` to 1.4.0.
+- The frontend dependency audit in CI fails on moderate or higher severity. It still covers
+  the whole dependency tree, including the dev toolchain.
+- The watchdog now checks one interval after the last push instead of on a fixed tick,
+  so an outage is detected about one interval after the device falls silent rather
+  than up to two. This improves detection accuracy only; it does not prevent outages.
+
+### Fixed
+
+- Devices no longer go unavailable every few minutes because the push subscription
+  lapses (#172): `philips-airctrl` 1.4.0 renews the CoAP Observe registration every
+  Max-Age seconds instead of registering it once. The watchdog stays as a safety net.
+- A replaced or cancelled observation stream can no longer request a reconnect, the old
+  observer is stopped before a reconnect closes its client, and a client whose status
+  read failed during reconnect is closed instead of staying open through the backoff.
+- Disable RSSI/runtime/speed diagnostics for new entity registrations; preserve existing user choices.
+- Move custom icons into frontend icon translations and redact identifying names in diagnostics.
+- Use Home Assistant entry lifecycle cleanup for CoAP resources, bound shutdown waits,
+  prevent reconnects after unload, and avoid duplicate setup-failure warnings.
+
+## [2026.10.2] - 2026-10-19
+
+### Fixed
+
+- Push-only models (CX7550, HU1509/HU1510/HU4209, AMF870) no longer switch the display back on after a Home Assistant restart. The integration now remembers the display backlight value the device last reported and ends the first nudge after a restart on that value instead of the model default. The value is stored with the config entry (`last_nudge_values`) and only updated from real status pushes, never from the nudge's own temporary write (#155).
+- Translations: Bulgarian, German, Dutch, Romanian and Slovak now cover every string the English translation has (config, options, entities, repairs, actions and error messages); Romanian and Slovak previously only translated the setup dialog. The preferred-index "Gas" option and the fan-mode "Allergy/Sleep" option now show their translated names (the translation keys didn't match the runtime option values). A new test fails CI when a locale is missing a key, has an extra key, or changes a placeholder (#158).
+
+## [2026.10.1] - 2026-10-19
+
+### Changed
+
+- Requires `philips-airctrl` 1.3.0 (Pydantic v2 best practices, strict typing with `py.typed`, clearer errors when a client is used before it is initialised). There are no behaviour changes for the integration, and 1.3.0 was tested against a live AC4220.
+- CI runs Pyright in strict mode on every pull request (quality scale `strict-typing` is now done).
+- CI restored to the tinkerologie standard set: a Test job runs the full pytest suite with coverage on every pull request and push, and uploads coverage to Codecov (OIDC, with a tokenless fallback for forks and Dependabot); a Validate workflow runs hassfest and HACS validation; and a Release workflow creates the GitHub release and tag whenever the manifest version changes on `main`, using that version's CHANGELOG section as the release notes.
+- Modernized for Home Assistant 2026.10 and the current Integration Quality Scale: the coordinator receives its config entry explicitly, the reconfigure flow uses Home Assistant's reconfigure helpers, setup and update errors and failed device commands are translated (a failed command now shows "Failed to send command to device at ..." instead of an unknown error), diagnostics no longer use device-registry APIs deprecated in 2026.8, and `quality_scale.yaml` lists the current rule set with accurate statuses.
+- Pull requests get path labels and at most one type label, `bug` or `enhancement`, from the shared tinkerologie PR labeler. Dependabot pull requests whose largest update is a patch or minor version merge automatically once the checks and commit statuses on their head commit have finished without a failure (a Codecov check that is still pending is not waited for; a Codecov failure blocks); majors, and pull requests with open review threads, stay for review.
+- Release workflows hardened (least-privilege job permissions, no expressions in shell scripts, no persisted checkout credentials, no dependency caches); scheduled workflows run on Australia/Brisbane time. LICENSE now contains the complete Apache License 2.0 text.
+- Workflow layout tidied after the release hardening (no behaviour change): blank-line layout restored in `ci.yml`.
+- Tinkerologie-Bot governance report updated to v1.4.3: an older run can no longer post a stale report after a newer run passed. Workflow formatting tidied.
+- Repository standardised to the tinkerologie layout (STANDARDS.md in tinkerologie/.github): workflows renamed to the standard set (CI, Validate, Release, PR Governance, ...), every action pinned to a commit SHA, shared Dependabot, `.editorconfig`, `.gitattributes` and `CODEOWNERS` files, and organization-wide labels and community files.
+- Tinkerologie-Bot's comment is now a readable "Pull request checklist": each problem is a numbered heading with plain-English guidance and its items listed underneath, and report updates for a pull request are serialised so an older run can never overwrite a newer one.
+- Contribution governance: issues without a `bug` or `enhancement` label are labeled automatically when their type can be determined (issues labeled `question`, `duplicate`, `invalid`, `wontfix`, or `no-type` are skipped), so CodeRabbit can plan them. Pull requests that conflict with the default branch are labeled, and their authors are notified in a comment. Stale issues and pull requests are labeled after 14 days without activity and closed 30 days later. PR governance now re-validates a human-authored, non-draft PR when a bot such as CodeRabbit edits its description, instead of skipping the check and reporting a pass, only maintainers with write access may use `None` instead of linking an issue, and a link to an issue that does not exist now fails the check.
+- Tinkerologie-Bot now posts one comment on pull requests that fail PR governance, listing every problem to fix, and updates it once they are fixed. PR governance runs from the default branch's workflow (`pull_request_target`), so a pull request cannot change its own check.
+
+### Fixed
+
+- Fixed `ImportError` on setup (e.g. `cannot import name 'FanEntityFeature'`) by importing platform classes and constants from the Home Assistant component packages instead of their `.const` submodules.
+- AMF870 units with `AWS_Philips_AIR_Combo@86` firmware are now handled as push-only: this firmware never answers a status read and only pushes status when something changes, so setup could keep retrying and the device went unavailable whenever it was idle in standby. The integration now briefly changes the display backlight (`D0312D`, 0/100) to get a status push at setup and on reconnect, then restores the last-known backlight value (the display may flicker briefly), and uses the fixed 30-minute push-only watchdog. The per-device option to turn the watchdog off still applies; the missed-package threshold doesn't apply to push-only models. Existing AMF870 entries pick this up after a restart or reload, with no reconfiguration needed. Thanks to @mbreitkreuz for the detailed analysis (#132).
+- The `filter_reset` and `set_child_lock` actions accept a target again. Their schemas did not allow the target fields, so Home Assistant rejected every targeted call with "not a valid option at 'entity_id'". A device or area target now sends each purifier the command once, entities of other integrations in a targeted area are ignored, and an invalid entity named directly fails the call before any device is changed.
+- The actions stay registered after the last purifier is removed or unloaded, instead of disappearing until Home Assistant restarts. Calling them for an unloaded purifier reports an invalid target instead of an unexpected error.
+- Repair issue titles and action names are now shown in English instead of raw translation keys (they were missing from `translations/en.json`).
+
+### Security
+
+- Development tooling only (not shipped in the integration): npm `overrides` move `katex` to 0.18 (GHSA-238p-pmpm-9mq7, low) and `smol-toml` to 1.9 (GHSA-r4xh-jqrq-34v2, moderate), both pulled in by `markdownlint-cli2`, whose latest release still pins the vulnerable versions.
+
+## [2026.10.0] - 2026-10-08
+
+### Added
+
+- Added support for **AC3854/25** (4000i, Thailand/Asia variant) with five preset modes (`auto`, `sleep`, `speed_1`, `speed_2`, `turbo`), four fan speeds, display backlight and brightness lights, gas preferred index select, and child lock switch ([#122](https://github.com/tinkerologie/ha-philips-airpurifier/issues/122)).
+
+### Fixed
+
+- Eliminated Python 3.14 compile-time `SyntaxWarning: 'return' in a 'finally' block` originating from the aiocoap tinydtls transport by preloading the transport in the off-loop worker thread under a scoped warning filter ([#127](https://github.com/tinkerologie/ha-philips-airpurifier/issues/127)).
 - Replaced deprecated `DeviceEntry.config_entries` and direct `.devices.values()` access in diagnostics with `dr.async_entries_for_config_entry()` to remain fully compatible with Home Assistant 2026.10.0+ integration quality scale requirements.
 - Updated schema validation and type annotations to support Home Assistant 2026.10.0+ (`probatio` schema builder, `RepairsFlowResult`, and relocated entity platform constants).
-- Reduced Home Assistant event-loop blocking warnings during Philips CoAP client creation by preparing aiocoap transport defaults in a worker thread before opening the CoAP client.
-- Replaced deprecated `CONCENTRATION_MICROGRAMS_PER_CUBIC_METER` usage with `UnitOfDensity.MICROGRAMS_PER_CUBIC_METER` to stay compatible with the Home Assistant 2027.8 deprecation timeline.
-- The watchdog missed-package threshold is now configurable per device with a clear precedence order: per-device override, per-model default, then the global fallback. This lets models like the **AC3039** stay online longer in standby without forcing a broader change for every device, while still keeping the default watchdog tolerance at 3 missed packages globally ([#92](https://github.com/ruaan-deysel/ha-philips-airpurifier/issues/92)).
 
-## [2026.10.3] - 2026-10-10
-
-### Changed
-
-- The **Lamp mode** select (`Off` / `Humidity` / `Ambient`) is no longer tagged
-  as a configuration entity, so it now appears in the device's **Controls**
-  section and on the auto-generated dashboard card instead of being hidden
-  under **Configuration**. Affects the models that use `D03135#2`:
-  HU1509/HU1510, HU4209/00 and HU5710.
+## [2026.9.2] - 2026-09-30
 
 ### Fixed
 
-- The **HU1509/HU1510/HU4209** status nudge no longer lights the unit's lamp.
-  On these humidifiers the lamp brightness is `D03105` (mirrored to `D03104`),
-  which the nudge toggled to force a status push; worse, the "restore the
-  user's last-known value" logic re-read the value the nudge's own transient
-  write had just pushed, so it could never get back to the user's value and
-  the lamp was left on after every reconnect and watchdog cycle. The nudge now
-  toggles the standby-sensors setting (`D03134`, confirmed on-device to push in
-  both directions and to touch no light register), and the value the nudge
-  deliberately restores to is pinned into the published status so a nudge can
-  no longer poison its own restore baseline.
+- Reduced Home Assistant event-loop blocking warnings during Philips CoAP
+  client creation by preparing aiocoap transport defaults in a worker thread
+  before opening the CoAP client.
+- Replaced deprecated `CONCENTRATION_MICROGRAMS_PER_CUBIC_METER` usage with
+  `UnitOfDensity.MICROGRAMS_PER_CUBIC_METER` to stay compatible with the
+  Home Assistant 2027.8 deprecation timeline.
 
-## [2026.10.2] - 2026-09-26
-
-### Added
-
-- **CX3120** now exposes the **Beep** switch (CoAP key `D03130`), matching the
-  HU1509/HU1510 and the other CX-series models. The device supports it — the
-  Philips Air+ app shows the setting and the device reports `D03130` — but the
-  model configuration omitted it, so no Beep entity was created.
-
-### Fixed
-
-- The **CX3120** climate entity's **Auto+** preset now shows a proper label and
-  icon. The climate `preset_mode` translations and icons only covered `auto`,
-  `high`, `medium`, `low` and `ventilation`, so the `auto_plus` preset fell
-  back to its raw key in the mode dropdown and the Preset mode tile. Labels
-  were added to `strings.json`, `en.json`, `de.json` and `bg.json` (reusing
-  each file's fan-section translation), and `mdi:autorenew` to `icons.json`
-  (matching the fan preset).
-
-## [2026.10.1] - 2026-09-26
-
-### Changed
-
-- The integration manifest now identifies this fork: `codeowners`, `documentation`, and
-  `issue_tracker` point at `brianramseyau/ha-philips-airpurifier`, so the HACS card and the
-  integration's "Documentation" and "Issues" links in Home Assistant no longer reference the
-  upstream repo. No functional changes.
-
-## [2026.10.0] - 2026-09-26
+## [2026.9.1] - 2026-09-28
 
 ### Fixed
 
@@ -102,6 +234,12 @@ and this project adheres to [Calendar Versioning](https://calver.org/) (`YYYY.MM
   legitimately idle is not needlessly reconnected. The per-device "update
   watchdog" option can still disable it entirely for a device known to sit
   idle for very long stretches.
+- The watchdog missed-package threshold is now configurable per device with a
+  clear precedence order: per-device override, per-model default, then the
+  global fallback. This lets models like the **AC3039** stay online longer in
+  standby without forcing a broader change for every device, while still
+  keeping the default watchdog tolerance at 3 missed packages globally
+  ([#92](https://github.com/tinkerologie/ha-philips-airpurifier/issues/92)).
 
 ## [2026.9.0] - 2026-09-04
 
@@ -117,7 +255,7 @@ and this project adheres to [Calendar Versioning](https://calver.org/) (`YYYY.MM
   stalls during reconnect. Coordinator CoAP calls are now time-bounded and
   stale reconnect tasks are treated as wedged, so retries and availability
   recovery continue as expected
-  ([#101](https://github.com/ruaan-deysel/ha-philips-airpurifier/pull/101)).
+  ([#101](https://github.com/tinkerologie/ha-philips-airpurifier/pull/101)).
 - Rotation (oscillation) control is available again on the **AMF870**
   (Series 8000i 2-in-1). The model configuration listed only the target
   temperature under its numbers, which replaced rather than extended the AMF
@@ -144,7 +282,7 @@ and this project adheres to [Calendar Versioning](https://calver.org/) (`YYYY.MM
 - Added a per-device option to enable or disable the update watchdog. This is
   useful for models that rely on status nudges and can remain idle for long
   periods without emitting push updates
-  ([#100](https://github.com/ruaan-deysel/ha-philips-airpurifier/pull/100)).
+  ([#100](https://github.com/tinkerologie/ha-philips-airpurifier/pull/100)).
 - Support for the **CX7550/01** (Philips oscillating tower fan). It uses Gen3
   CoAP and is fan-only (no heater). Exposes all 12 manual fan speeds, the Auto,
   Sleep and Natural preset modes, on/off oscillation, the display backlight
@@ -162,11 +300,11 @@ and this project adheres to [Calendar Versioning](https://calver.org/) (`YYYY.MM
 - Support for the **HU4209/00** (Philips Evaporative Humidifier Series 4000).
   It uses Gen3 CoAP and reuses the HU1509/HU1510 preset and speed mappings,
   differing only by the absence of ambient light mode
-  ([#63](https://github.com/ruaan-deysel/ha-philips-airpurifier/pull/63)).
+  ([#63](https://github.com/tinkerologie/ha-philips-airpurifier/pull/63)).
 - Support for the **AC2210** family (PureProtect Quiet 2200 series, e.g.
   `AC2210/10`) by reusing the AC2221 device configuration; previously these
   devices were detected but rejected with `model_unsupported`
-  ([#59](https://github.com/ruaan-deysel/ha-philips-airpurifier/pull/59)).
+  ([#59](https://github.com/tinkerologie/ha-philips-airpurifier/pull/59)).
 
 ## [2026.6.2] - 2026-06-14
 
@@ -174,10 +312,10 @@ and this project adheres to [Calendar Versioning](https://calver.org/) (`YYYY.MM
 
 - Coordinator reconnect handling now uses exponential backoff retries
   (5 seconds up to a 60-second cap) after reconnect failures, instead of
-  waiting for the watchdog interval to recover. ([#51](https://github.com/ruaan-deysel/ha-philips-airpurifier/issues/51))
+  waiting for the watchdog interval to recover. ([#51](https://github.com/tinkerologie/ha-philips-airpurifier/issues/51))
 - Devices are no longer marked unavailable immediately when the CoAP
   observation stream ends; unavailable is now set only when reconnect attempts
-  actually fail, reducing transient warning noise. ([#51](https://github.com/ruaan-deysel/ha-philips-airpurifier/issues/51))
+  actually fail, reducing transient warning noise. ([#51](https://github.com/tinkerologie/ha-philips-airpurifier/issues/51))
 
 ## [2026.6.1] - 2026-06-12
 
@@ -185,7 +323,7 @@ and this project adheres to [Calendar Versioning](https://calver.org/) (`YYYY.MM
 
 - DHCP discovery now matches already configured devices by MAC address (or
   host) **before** opening a CoAP connection
-  ([#8](https://github.com/ruaan-deysel/ha-philips-airpurifier/issues/8)).
+  ([#8](https://github.com/tinkerologie/ha-philips-airpurifier/issues/8)).
   This fixes two long-standing problems:
   - A purifier that received a new IP address from the router stayed
     unavailable forever, because the discovery flow had to connect to the
@@ -214,12 +352,12 @@ and this project adheres to [Calendar Versioning](https://calver.org/) (`YYYY.MM
   matching the Home Assistant `SelectEntity` contract.
 - The fan mode select is no longer a configuration entity, so it appears in
   device automation pickers again
-  ([#2](https://github.com/ruaan-deysel/ha-philips-airpurifier/issues/2)).
+  ([#2](https://github.com/tinkerologie/ha-philips-airpurifier/issues/2)).
 - Declared the correct minimum Home Assistant version (2026.4.0, matching the
   documented requirement) in `hacs.json` and the README badge. Home Assistant
   releases before 2026.3 run Python 3.13, where the integration fails to load
   with a syntax error
-  ([#45](https://github.com/ruaan-deysel/ha-philips-airpurifier/issues/45));
+  ([#45](https://github.com/tinkerologie/ha-philips-airpurifier/issues/45));
   the previous HACS minimum of 2025.1.0 allowed broken installs.
 
 ### Changed
@@ -242,14 +380,12 @@ and this project adheres to [Calendar Versioning](https://calver.org/) (`YYYY.MM
 ## [2026.6.0] - 2026-06-08
 
 Latest release prior to this changelog being introduced. See the
-[GitHub releases](https://github.com/ruaan-deysel/ha-philips-airpurifier/releases)
+[GitHub releases](https://github.com/tinkerologie/ha-philips-airpurifier/releases)
 for the history of earlier versions.
 
-[2026.10.4]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.10.3...v2026.10.4
-[2026.10.3]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.10.2...v2026.10.3
-[2026.10.2]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.10.1...v2026.10.2
-[2026.10.1]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.10.0...v2026.10.1
-[2026.10.0]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.9.0...v2026.10.0
-[2026.9.0]: https://github.com/ruaan-deysel/ha-philips-airpurifier/compare/v2026.8.0...v2026.9.0
-[2026.6.1]: https://github.com/ruaan-deysel/ha-philips-airpurifier/compare/v2026.6.0...v2026.6.1
-[2026.6.0]: https://github.com/ruaan-deysel/ha-philips-airpurifier/releases/tag/v2026.6.0
+[Unreleased]: https://github.com/brianramseyau/ha-philips-airpurifier/compare/v2026.10.4...HEAD
+[2026.10.1]: https://github.com/tinkerologie/ha-philips-airpurifier/compare/v2026.10.0...v2026.10.1
+[2026.10.0]: https://github.com/tinkerologie/ha-philips-airpurifier/compare/v2026.9.2...v2026.10.0
+[2026.9.2]: https://github.com/tinkerologie/ha-philips-airpurifier/compare/v2026.9.1...v2026.9.2
+[2026.6.1]: https://github.com/tinkerologie/ha-philips-airpurifier/compare/v2026.6.0...v2026.6.1
+[2026.6.0]: https://github.com/tinkerologie/ha-philips-airpurifier/releases/tag/v2026.6.0

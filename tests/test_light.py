@@ -4,20 +4,19 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
-from pytest_homeassistant_custom_component.common import MockConfigEntry
-
 from custom_components.philips_airpurifier.coordinator import (
     PhilipsAirPurifierCoordinator,
 )
 from custom_components.philips_airpurifier.light import PhilipsLight
 from custom_components.philips_airpurifier.model import DeviceInformation
-from homeassistant.components.light import ATTR_BRIGHTNESS
-from homeassistant.components.light.const import DOMAIN as LIGHT_DOMAIN
+from homeassistant.components.light import ATTR_BRIGHTNESS, DOMAIN as LIGHT_DOMAIN
 from homeassistant.const import ATTR_ENTITY_ID, SERVICE_TURN_OFF, SERVICE_TURN_ON
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
 from .const import TEST_DEVICE_ID, TEST_MODEL
+
+from tests.harness import MockConfigEntry
 
 BACKLIGHT_ENTITY_ID = "light.living_room_display_backlight"
 BRIGHTNESS_ENTITY_ID = "light.living_room_light_brightness"

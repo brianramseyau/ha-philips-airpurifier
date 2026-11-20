@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from contextlib import suppress
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from aiocoap import Context
+from philips_airctrl import CoAPClient
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.philips_airpurifier.const import DEFAULT_MISSED_PACKAGE_COUNT
+from custom_components.philips_airpurifier.const import DEFAULT_MISSED_PACKAGE_COUNT, DOMAIN
 from custom_components.philips_airpurifier.coordinator import (
     NUDGE_WATCHDOG_TIMEOUT,
     RECONNECT_INITIAL_DELAY,
@@ -17,10 +20,12 @@ from custom_components.philips_airpurifier.coordinator import (
 )
 from custom_components.philips_airpurifier.model import DeviceInformation
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import MOCK_STATUS_GEN1, TEST_DEVICE_ID, TEST_HOST, TEST_MODEL, TEST_NAME
+
+from tests.harness import MockConfigEntry
 
 
 async def test_coordinator_data_available(
@@ -98,14 +103,16 @@ async def test_coordinator_set_control_values_error(
     init_integration: MockConfigEntry,
     mock_coap_client: AsyncMock,
 ) -> None:
-    """Test setting control values propagates errors."""
+    """Test setting control values raises a translated HomeAssistantError."""
     coordinator = init_integration.runtime_data
 
     mock_coap_client.set_control_values.side_effect = Exception("connection lost")
 
-    # The method doesn't wrap errors in UpdateFailed, it just propagates the exception
-    with pytest.raises(Exception, match="connection lost"):
+    with pytest.raises(HomeAssistantError, match="connection lost") as exc_info:
         await coordinator.async_set_control_values({"pwr": "1"})
+
+    assert exc_info.value.translation_key == "command_failed"
+    assert exc_info.value.translation_domain == DOMAIN
 
 
 async def test_coordinator_async_update_data(
@@ -207,7 +214,7 @@ def _make_coordinator(
     hass: HomeAssistant,
     *,
     model: str = TEST_MODEL,
-    client: AsyncMock | None = None,
+    client: CoAPClient | AsyncMock | None = None,
     update_watchdog_enabled: bool = True,
     missed_package_count: int = DEFAULT_MISSED_PACKAGE_COUNT,
 ) -> PhilipsAirPurifierCoordinator:
@@ -590,6 +597,29 @@ async def test_async_observe_status_success_updates_data(hass: HomeAssistant) ->
     assert coordinator.data == {"pwr": "1"}
 
 
+@pytest.mark.parametrize(("model", "renew_interval"), [("CX5120", 1800), (None, None)])
+async def test_async_observe_status_renew_interval(
+    hass: HomeAssistant, model: str | None, renew_interval: int | None
+) -> None:
+    """Push-only models renew the observation only at the nudge watchdog interval."""
+
+    async def stream():
+        yield {"D03102": 1}
+
+    client = MagicMock()
+    client.observe_status = MagicMock(return_value=stream())
+    coordinator = _make_coordinator(hass, client=client, **({"model": model} if model else {}))
+
+    def _fake_create_task(coro, *_args, **_kwargs):
+        coro.close()
+        return MagicMock()
+
+    with patch.object(hass, "async_create_background_task", side_effect=_fake_create_task):
+        await coordinator._async_observe_status()
+
+    client.observe_status.assert_called_once_with(renew_interval=renew_interval)
+
+
 async def test_async_reconnect_creates_task_when_idle(hass: HomeAssistant) -> None:
     """Test reconnect schedules reconnect task when none is running."""
     coordinator = _make_coordinator(hass)
@@ -738,6 +768,81 @@ async def test_first_refresh_via_nudge_failure(hass: HomeAssistant) -> None:
 
 
 @pytest.mark.unit
+async def test_reconnect_publishes_acknowledged_nudge_restoration(hass: HomeAssistant) -> None:
+    """A reconnect publishes the restored value, even if the first push was transient."""
+    coordinator = _make_coordinator(hass, model="CX7550")
+    transient = {**_CX_STATUS, "D03105": 0}
+
+    async def observe() -> AsyncIterator[dict[str, str | int]]:
+        yield transient
+
+    temporary = MagicMock()
+    temporary.observe_status.return_value = observe()
+    temporary.set_control_value = AsyncMock(return_value=True)
+    temporary.shutdown = AsyncMock()
+    replacement = AsyncMock()
+
+    with (
+        patch(f"{_COORD}.CoAPClient.create", AsyncMock(side_effect=[temporary, replacement])),
+        patch("custom_components.philips_airpurifier.client._NUDGE_REGISTER_DELAY", 0),
+        patch.object(coordinator, "_start_observing"),
+    ):
+        await coordinator._do_reconnect()
+
+    assert coordinator.data == {**_CX_STATUS, "D03105": 115}
+    assert coordinator.nudge_resting_values == {}
+    assert transient["D03105"] == 0
+    assert coordinator.client is replacement
+    temporary.shutdown.assert_awaited_once()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("initial_refresh", [True, False], ids=["setup", "reconnect"])
+async def test_stalled_nudge_writes_fail_setup_or_back_off_reconnect(
+    hass: HomeAssistant, initial_refresh: bool
+) -> None:
+    """An unreachable push-only device leaves setup or reconnect within the nudge deadline."""
+    coordinator = _make_coordinator(hass, model="CX7550")
+    never = asyncio.Event()
+
+    async def observe() -> AsyncIterator[dict[str, int]]:
+        await never.wait()
+        yield {"D03105": 0}
+
+    async def write(_key: str, _value: int) -> None:
+        await never.wait()
+
+    temporary = MagicMock()
+    temporary.observe_status.return_value = observe()
+    temporary.set_control_value = AsyncMock(side_effect=write)
+    temporary.shutdown = AsyncMock()
+    client_module = "custom_components.philips_airpurifier.client"
+
+    with (
+        patch(f"{_COORD}.CoAPClient.create", AsyncMock(return_value=temporary)) as create,
+        patch(f"{client_module}._NUDGE_REGISTER_DELAY", 0),
+        patch(f"{client_module}._NUDGE_WRITE_TIMEOUT", 0.01),
+        patch(f"{client_module}._NUDGE_WAIT_TIMEOUT", 0.01),
+        patch.object(coordinator, "_schedule_reconnect_retry") as retry,
+        patch.object(coordinator, "_start_observing") as start,
+    ):
+        if initial_refresh:
+            with pytest.raises(ConfigEntryNotReady) as error:
+                await asyncio.wait_for(coordinator.async_first_refresh_and_observe(), timeout=1)
+            assert isinstance(error.value.__cause__, TimeoutError)
+            retry.assert_not_called()
+        else:
+            await asyncio.wait_for(coordinator._do_reconnect(), timeout=1)
+            retry.assert_called_once_with(RECONNECT_INITIAL_DELAY)
+            assert coordinator._reconnect_delay == RECONNECT_INITIAL_DELAY * 2
+            assert not coordinator.last_update_success
+
+    start.assert_not_called()
+    create.assert_awaited_once()
+    temporary.shutdown.assert_awaited_once()
+
+
+@pytest.mark.unit
 async def test_update_data_nudge_returns_cached(hass: HomeAssistant) -> None:
     """Test polling a nudge-only device returns the last pushed status."""
     coordinator = _make_coordinator(hass, model="CX7550")
@@ -828,12 +933,13 @@ def test_build_status_nudge_restores_display_off(hass: HomeAssistant) -> None:
 
 
 @pytest.mark.unit
-def test_build_status_nudge_restores_custom_brightness(hass: HomeAssistant) -> None:
+@pytest.mark.parametrize(("model", "brightness"), [("CX7550", 123), ("CX5120", 47)])
+def test_build_status_nudge_restores_custom_brightness(hass: HomeAssistant, model: str, brightness: int) -> None:
     """The nudge ends on whatever backlight value was last observed."""
-    coordinator = _make_coordinator(hass, model="CX7550")
-    coordinator.async_set_updated_data({**_CX_STATUS, "D03105": 123})
+    coordinator = _make_coordinator(hass, model=model)
+    coordinator.async_set_updated_data({"D03105": brightness})
 
-    assert coordinator._build_status_nudge() == [("D03105", 0), ("D03105", 123)]
+    assert coordinator._build_status_nudge() == [("D03105", 0), ("D03105", brightness)]
 
 
 @pytest.mark.unit
@@ -857,6 +963,23 @@ def test_build_status_nudge_hu1509_family(hass: HomeAssistant, model: str) -> No
     coordinator = _make_coordinator(hass, model=model)
 
     assert coordinator._build_status_nudge() == [("D03134", 0), ("D03134", 1)]
+
+
+@pytest.mark.unit
+def test_build_status_nudge_cx5120(hass: HomeAssistant) -> None:
+    """CX5120 is push-only: the nudge toggles the display backlight (D03105, 0/100)."""
+    coordinator = _make_coordinator(hass, model="CX5120")
+
+    assert coordinator._build_status_nudge() == [("D03105", 0), ("D03105", 100)]
+
+
+@pytest.mark.unit
+def test_build_status_nudge_cx5120_restores_display_off(hass: HomeAssistant) -> None:
+    """When the CX5120 display was left off, the nudge ends on off (0)."""
+    coordinator = _make_coordinator(hass, model="CX5120")
+    coordinator.async_set_updated_data({"D03105": 0})
+
+    assert coordinator._build_status_nudge() == [("D03105", 100), ("D03105", 0)]
 
 
 @pytest.mark.unit
@@ -1045,3 +1168,636 @@ async def test_schedule_reconnect_retry_lifecycle(hass: HomeAssistant) -> None:
     ):
         await coordinator._async_retry_reconnect(5)
         mock_reconnect.assert_awaited_once()
+
+
+@pytest.mark.unit
+def test_build_status_nudge_uses_persisted_value_without_data(hass: HomeAssistant) -> None:
+    """After a restart the nudge ends on the persisted resting value, not the default."""
+    coordinator = PhilipsAirPurifierCoordinator(
+        hass,
+        AsyncMock(),
+        TEST_HOST,
+        DeviceInformation(model="CX7550", name=TEST_NAME, device_id=TEST_DEVICE_ID, host=TEST_HOST),
+        last_nudge_values={"D03105": 0},
+    )
+
+    assert coordinator._build_status_nudge() == [("D03105", 115), ("D03105", 0)]
+
+
+@pytest.mark.unit
+def test_build_status_nudge_observed_value_beats_cached_status(hass: HomeAssistant) -> None:
+    """A cached/seeded status can't override the value the observe stream reported."""
+    coordinator = PhilipsAirPurifierCoordinator(
+        hass,
+        AsyncMock(),
+        TEST_HOST,
+        DeviceInformation(model="CX7550", name=TEST_NAME, device_id=TEST_DEVICE_ID, host=TEST_HOST),
+        last_nudge_values={"D03105": 0},
+    )
+    coordinator.async_set_updated_data({**_CX_STATUS, "D03105": 123})
+
+    assert coordinator._build_status_nudge() == [("D03105", 115), ("D03105", 0)]
+
+
+@pytest.mark.unit
+def test_build_status_nudge_new_observation_replaces_persisted_value(hass: HomeAssistant) -> None:
+    """A fresh push from the device replaces the value persisted from an earlier run."""
+    coordinator = PhilipsAirPurifierCoordinator(
+        hass,
+        AsyncMock(),
+        TEST_HOST,
+        DeviceInformation(model="CX7550", name=TEST_NAME, device_id=TEST_DEVICE_ID, host=TEST_HOST),
+        last_nudge_values={"D03105": 0},
+    )
+    coordinator._record_nudge_resting_values({**_CX_STATUS, "D03105": 123})
+
+    assert coordinator._build_status_nudge() == [("D03105", 0), ("D03105", 123)]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("persisted", "expected"),
+    [
+        ({"D03105": 0, "D03102": 1, "D0312D": None}, {"D03105": 0}),
+        ({"D03105": None}, {}),
+        (["D03105", 0], {}),
+        (None, {}),
+    ],
+)
+def test_persisted_nudge_values_are_filtered(hass: HomeAssistant, persisted: object, expected: dict) -> None:
+    """Only non-None values of the model's own nudge keys are kept."""
+    coordinator = PhilipsAirPurifierCoordinator(
+        hass,
+        AsyncMock(),
+        TEST_HOST,
+        DeviceInformation(model="CX7550", name=TEST_NAME, device_id=TEST_DEVICE_ID, host=TEST_HOST),
+        last_nudge_values=persisted,  # type: ignore[arg-type]
+    )
+
+    assert coordinator.nudge_resting_values == expected
+
+
+@pytest.mark.unit
+async def test_observe_stream_records_nudge_resting_values(hass: HomeAssistant) -> None:
+    """Ordinary pushes update the resting values; pushes without the key keep them."""
+
+    async def stream():
+        yield {**_CX_STATUS, "D03105": 0}
+        yield {"D03102": 0}
+
+    client = MagicMock()
+    client.observe_status = MagicMock(return_value=stream())
+    coordinator = _make_coordinator(hass, model="CX7550", client=client)
+
+    def _fake_create_task(coro, *_args, **_kwargs):
+        coro.close()
+        return MagicMock()
+
+    with patch.object(hass, "async_create_background_task", side_effect=_fake_create_task):
+        await coordinator._async_observe_status()
+
+    assert coordinator.nudge_resting_values == {"D03105": 0}
+
+
+@pytest.mark.unit
+def test_nudge_snapshot_does_not_record_resting_value(hass: HomeAssistant) -> None:
+    """A status published outside the observe stream (e.g. a nudge snapshot) is ignored."""
+    coordinator = _make_coordinator(hass, model="CX7550")
+    coordinator.async_set_updated_data({**_CX_STATUS, "D03105": 115})
+
+    assert coordinator.nudge_resting_values == {}
+
+
+async def test_first_refresh_uses_cache_with_watchdog_disabled(hass: HomeAssistant) -> None:
+    """Cached startup does not open a second CoAP status request."""
+    coordinator = _make_coordinator(hass, update_watchdog_enabled=False)
+    coordinator.async_set_updated_data({"pwr": "1"})
+    with patch.object(coordinator, "_start_observing") as observe:
+        await coordinator.async_first_refresh_and_observe()
+    observe.assert_called_once()
+    coordinator.client.get_status.assert_not_called()
+    assert coordinator.data == {"pwr": "1"}
+    assert coordinator.last_update_success
+
+
+async def test_shutdown_is_idempotent(hass: HomeAssistant) -> None:
+    """HA unloading and setup cleanup may both request shutdown."""
+    coordinator = _make_coordinator(hass)
+    await coordinator.async_shutdown()
+    await coordinator.async_shutdown()
+    coordinator.client.shutdown.assert_awaited_once()
+
+
+async def test_concurrent_shutdown_waits_and_closes_once(hass: HomeAssistant) -> None:
+    """Concurrent lifecycle callbacks share one bounded cleanup."""
+    coordinator = _make_coordinator(hass)
+    await asyncio.gather(coordinator.async_shutdown(), coordinator.async_shutdown())
+    coordinator.client.shutdown.assert_awaited_once()
+    assert coordinator._shutdown_complete
+    with pytest.raises(HomeAssistantError):
+        await coordinator.async_set_control_value("pwr", "1")
+    coordinator.client.set_control_values.assert_not_called()
+
+
+async def test_no_observation_or_reconnect_after_shutdown(hass: HomeAssistant) -> None:
+    """A late observation dispatch cannot revive an unloaded device."""
+    coordinator = _make_coordinator(hass)
+    await coordinator.async_shutdown()
+    with patch.object(hass, "async_create_background_task") as create:
+        coordinator._start_observing()
+        await coordinator._async_reconnect()
+    create.assert_not_called()
+
+
+async def test_intentionally_cancelled_observation_does_not_reconnect(hass: HomeAssistant) -> None:
+    """Replacing an observation must not race a reconnect of its own."""
+    coordinator = _make_coordinator(hass)
+
+    async def cancelled_stream():
+        raise asyncio.CancelledError
+        yield {}
+
+    coordinator.client.observe_status = MagicMock(return_value=cancelled_stream())
+    with patch.object(hass, "async_create_background_task") as create:
+        with pytest.raises(asyncio.CancelledError):
+            await coordinator._async_observe_status()
+    create.assert_not_called()
+
+
+async def test_shutdown_closes_client_with_cancellation_resistant_task(hass: HomeAssistant) -> None:
+    """Device socket cleanup cannot wait forever for an observation task."""
+    coordinator = _make_coordinator(hass)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def resistant():
+        started.set()
+        try:
+            await release.wait()
+        except asyncio.CancelledError:
+            await release.wait()
+
+    task = hass.async_create_background_task(resistant(), "test_resistant_observation")
+    await started.wait()
+    coordinator._observe_task = task
+    with patch("custom_components.philips_airpurifier.coordinator.SHUTDOWN_TIMEOUT", 0.01):
+        await coordinator.async_shutdown()
+    coordinator.client.shutdown.assert_awaited_once()
+    release.set()
+    await task
+
+
+@pytest.mark.parametrize("model", [TEST_MODEL, "CX7550"])
+async def test_replacement_client_closed_when_shutdown_wins(hass: HomeAssistant, model: str) -> None:
+    """A late client connection is closed without reactivating observation."""
+    coordinator = _make_coordinator(hass, model=model)
+    replacement = AsyncMock()
+
+    async def create(*args, **kwargs):
+        coordinator._shutting_down = True
+        return replacement
+
+    with (
+        patch("custom_components.philips_airpurifier.coordinator.async_create_client", side_effect=create),
+        patch.object(coordinator, "_async_nudge_fetch", return_value={"pwr": "1"}),
+    ):
+        await coordinator._do_reconnect()
+    replacement.shutdown.assert_awaited_once()
+    assert coordinator.client is not replacement
+
+
+# Issue #172: lifecycle logging, push accounting and lifecycle hygiene.
+
+
+def _discard_task(coro, *_args, **_kwargs):
+    coro.close()
+    return MagicMock()
+
+
+@pytest.mark.parametrize(
+    ("create", "status", "stage"),
+    [
+        (AsyncMock(side_effect=TimeoutError), None, "create"),
+        (None, RuntimeError(f"no answer from {TEST_HOST}"), "status"),
+    ],
+)
+async def test_reconnect_failure_reports_stage_and_type(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+    create: AsyncMock | None,
+    status: Exception | None,
+    stage: str,
+) -> None:
+    """A failed reconnect logs which stage failed and the exception type."""
+    coordinator = _make_coordinator(hass, client=AsyncMock())
+    new_client = AsyncMock()
+    new_client.get_status.side_effect = status
+
+    with (
+        patch(
+            "custom_components.philips_airpurifier.coordinator.CoAPClient.create",
+            new=create or AsyncMock(return_value=new_client),
+        ),
+        patch.object(coordinator, "_schedule_reconnect_retry"),
+    ):
+        await coordinator._do_reconnect()
+
+    error_type = "TimeoutError" if stage == "create" else "RuntimeError"
+    assert f"failed at the {stage} stage ({error_type}" in caplog.text
+    error = coordinator.connection_diagnostics()["last_reconnect_error"]
+    assert error["stage"] == stage
+    assert error == {"stage": stage, "type": error_type}
+    assert coordinator._consecutive_reconnect_failures == 1
+    if stage == "status":
+        # The client whose status read failed is released before the backoff.
+        new_client.shutdown.assert_awaited_once()
+
+
+async def test_reconnect_success_logs_attempts_and_outage(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A successful reconnect reports the attempt count and outage duration."""
+    caplog.set_level(logging.INFO)
+    coordinator = _make_coordinator(hass, client=AsyncMock())
+    new_client = AsyncMock()
+    new_client.get_status.return_value = ({"pwr": "1"}, 30)
+    coordinator._mark_unavailable("watchdog timeout")
+    coordinator._outage_started -= 125
+    coordinator._reconnect_attempts = 2
+    coordinator._consecutive_reconnect_failures = 2
+
+    with (
+        patch(
+            "custom_components.philips_airpurifier.coordinator.CoAPClient.create",
+            new=AsyncMock(return_value=new_client),
+        ),
+        patch.object(coordinator, "_start_observing"),
+    ):
+        await coordinator._do_reconnect()
+
+    assert "after 3 attempt(s), unavailable for 125 seconds" in caplog.text
+    assert coordinator._reconnect_attempts == 0
+    assert coordinator._consecutive_reconnect_failures == 0
+    assert coordinator.connection_diagnostics()["outage_seconds"] is None
+
+
+async def test_reconnect_success_without_outage_logs_attempts(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A reconnect after a stream ending, with the device still available, logs no duration."""
+    caplog.set_level(logging.INFO)
+    coordinator = _make_coordinator(hass, model="CX7550", client=AsyncMock())
+
+    with (
+        patch.object(coordinator, "_async_refresh_via_nudge", new=AsyncMock()),
+        patch.object(coordinator, "_start_observing"),
+    ):
+        await coordinator._do_reconnect()
+
+    assert "Reconnected to" in caplog.text
+    assert "unavailable for" not in caplog.text
+
+
+async def test_reconnect_stops_old_observer_before_client_shutdown(hass: HomeAssistant) -> None:
+    """The reconnect entry retires the old observer before closing its client."""
+    order: list[str] = []
+    client = AsyncMock()
+    client.shutdown.side_effect = lambda: order.append("client_shutdown")
+    coordinator = _make_coordinator(hass, client=client)
+
+    async def stop_observer() -> None:
+        order.append("stop_observer")
+
+    with (
+        patch.object(coordinator, "_async_stop_observer", side_effect=stop_observer),
+        patch(
+            "custom_components.philips_airpurifier.coordinator.CoAPClient.create",
+            new=AsyncMock(side_effect=RuntimeError("connect failed")),
+        ),
+        patch.object(coordinator, "_schedule_reconnect_retry"),
+    ):
+        await coordinator._do_reconnect()
+
+    assert order == ["stop_observer", "client_shutdown"]
+
+
+async def test_stop_observer_cancels_and_awaits_running_task(hass: HomeAssistant) -> None:
+    """Stopping a running observer cancels it, waits for it and bumps the generation."""
+    coordinator = _make_coordinator(hass)
+    started = asyncio.Event()
+
+    async def run_forever() -> None:
+        started.set()
+        await asyncio.Event().wait()
+
+    task = asyncio.create_task(run_forever())
+    await started.wait()
+    coordinator._observe_task = task
+
+    await coordinator._async_stop_observer()
+
+    assert task.cancelled()
+    assert coordinator._observe_task is None
+    assert coordinator._observe_generation == 1
+
+
+async def test_stop_observer_handles_missing_and_finished_tasks(hass: HomeAssistant) -> None:
+    """Stopping is a no-op apart from the generation when no observer is running."""
+    coordinator = _make_coordinator(hass)
+    await coordinator._async_stop_observer()
+
+    async def fail() -> None:
+        raise RuntimeError("stream failed")
+
+    finished = asyncio.create_task(fail())
+    with suppress(RuntimeError):
+        await finished
+    coordinator._observe_task = finished
+    await coordinator._async_stop_observer()
+
+    assert coordinator._observe_generation == 2
+
+
+async def test_stop_observer_retrieves_error_of_task_that_finishes_while_waiting(hass: HomeAssistant) -> None:
+    """An observer that ends with an error during the wait has its error retrieved."""
+    coordinator = _make_coordinator(hass)
+
+    async def fail_on_cancel() -> None:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            raise RuntimeError("closed") from None
+
+    task = asyncio.create_task(fail_on_cancel())
+    await asyncio.sleep(0)
+    coordinator._observe_task = task
+
+    await coordinator._async_stop_observer()
+
+    assert isinstance(task.exception(), RuntimeError)
+
+
+async def test_start_observing_starts_a_new_session(hass: HomeAssistant) -> None:
+    """Each observation session gets a new generation and fresh push counters."""
+    coordinator = _make_coordinator(hass)
+    coordinator._session_pushes = 4
+    coordinator._session_first_push = 1.0
+
+    with patch.object(hass, "async_create_background_task", side_effect=_discard_task):
+        coordinator._start_observing()
+
+    assert coordinator._observe_generation == 1
+    assert coordinator._session_pushes == 0
+    assert coordinator._session_first_push is None
+
+
+async def test_observe_counts_pushes_and_records_first_push(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Each pushed status is counted and the first push latency is logged."""
+    caplog.set_level(logging.DEBUG)
+    client = MagicMock()
+
+    async def stream():
+        yield {"pwr": "1"}
+        yield {"pwr": "0"}
+
+    client.observe_status = MagicMock(return_value=stream())
+    coordinator = _make_coordinator(hass, client=client)
+    coordinator._observe_generation = 3
+
+    with patch.object(hass, "async_create_background_task", side_effect=_discard_task) as create_task:
+        await coordinator._async_observe_status(3)
+
+    assert coordinator._session_pushes == 2
+    assert coordinator._session_first_push is not None
+    assert "First observation push" in caplog.text
+    assert "ended without an error" in caplog.text
+    # A normally ending stream of the current session still requests recovery.
+    create_task.assert_called_once()
+    snapshot = coordinator.connection_diagnostics()
+    assert snapshot["session_pushes"] == 2
+    assert snapshot["first_push_latency"] is not None
+
+
+async def test_stale_observer_does_not_reconnect_or_count(hass: HomeAssistant) -> None:
+    """An observer replaced by a newer session neither counts pushes nor reconnects."""
+    client = MagicMock()
+
+    async def stream():
+        yield {"pwr": "1"}
+        raise RuntimeError("old stream closed")
+
+    client.observe_status = MagicMock(return_value=stream())
+    coordinator = _make_coordinator(hass, client=client)
+    coordinator._observe_generation = 5
+
+    with patch.object(hass, "async_create_background_task", side_effect=_discard_task) as create_task:
+        await coordinator._async_observe_status(4)
+
+    create_task.assert_not_called()
+    assert coordinator._session_pushes == 0
+
+
+async def test_first_push_check_logs_only_for_a_silent_current_session(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The no-initial-response message fires only for the current, silent session."""
+    caplog.set_level(logging.INFO)
+    coordinator = _make_coordinator(hass)
+    coordinator._observe_generation = 2
+
+    coordinator._check_first_push(1)
+    assert "no initial response" not in caplog.text
+
+    coordinator._session_pushes = 1
+    coordinator._check_first_push(2)
+    assert "no initial response" not in caplog.text
+
+    coordinator._session_pushes = 0
+    coordinator._check_first_push(2)
+    assert caplog.text.count("no initial response") == 1
+
+
+async def test_first_push_check_is_cancelled_when_the_session_ends(hass: HomeAssistant) -> None:
+    """The first-push timer never outlives its observation session."""
+    client = MagicMock()
+    handles: list[asyncio.TimerHandle] = []
+    loop = asyncio.get_event_loop()
+    real_call_later = loop.call_later
+
+    def record_call_later(*args, **kwargs):
+        handle = real_call_later(*args, **kwargs)
+        handles.append(handle)
+        return handle
+
+    async def silent_stream():
+        raise RuntimeError("closed before any push")
+        yield {}
+
+    client.observe_status = MagicMock(return_value=silent_stream())
+    coordinator = _make_coordinator(hass, client=client)
+
+    with (
+        patch.object(loop, "call_later", side_effect=record_call_later),
+        patch.object(hass, "async_create_background_task", side_effect=_discard_task),
+    ):
+        await coordinator._async_observe_status()
+
+    assert len(handles) == 1
+    assert handles[0].cancelled()
+
+
+async def test_watchdog_sleeps_until_the_window_after_the_last_push(hass: HomeAssistant) -> None:
+    """The watchdog wakes about one interval after the last push, not on a fixed tick."""
+    coordinator = _make_coordinator(hass, missed_package_count=10)
+    coordinator._timeout = 60
+    coordinator._last_update = 1000
+
+    fake_loop = MagicMock()
+    # 200 s after the last push, 400 s of the 600 s window remain.
+    fake_loop.time.return_value = 1200
+
+    with (
+        patch(
+            "custom_components.philips_airpurifier.coordinator.asyncio.sleep",
+            side_effect=asyncio.CancelledError,
+        ) as sleep_mock,
+        patch("custom_components.philips_airpurifier.coordinator.asyncio.get_event_loop", return_value=fake_loop),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await coordinator._async_watchdog()
+
+    sleep_mock.assert_called_once_with(400)
+
+
+async def test_watchdog_expires_one_interval_after_the_last_push(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Expiry is detected at about I after the last push and reports the session pushes."""
+    coordinator = _make_coordinator(hass, missed_package_count=10)
+    coordinator._timeout = 60
+    coordinator._last_update = 1000
+    coordinator._session_pushes = 7
+
+    clock = {"now": 1200.0}
+    fake_loop = MagicMock()
+    fake_loop.time.side_effect = lambda: clock["now"]
+    sleeps: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+        if len(sleeps) == 3:
+            raise asyncio.CancelledError
+        clock["now"] += delay
+
+    with (
+        patch("custom_components.philips_airpurifier.coordinator.asyncio.sleep", side_effect=fake_sleep),
+        patch("custom_components.philips_airpurifier.coordinator.asyncio.get_event_loop", return_value=fake_loop),
+        patch.object(coordinator, "_async_reconnect", new=AsyncMock()) as reconnect_mock,
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await coordinator._async_watchdog()
+
+    # 400 s to the deadline, then the minimum sleep past the strict ">" check,
+    # then a full interval before re-checking after the reconnect request.
+    assert sleeps == [400, 1, 600]
+    reconnect_mock.assert_awaited_once()
+    assert "No updates from" in caplog.text
+    assert "watchdog interval 600 seconds, 7 push(es)" in caplog.text
+
+
+async def test_connection_diagnostics_reports_reconnect_in_progress(hass: HomeAssistant) -> None:
+    """The lifecycle snapshot reports an active reconnect and its age."""
+    coordinator = _make_coordinator(hass)
+    reconnect = MagicMock()
+    reconnect.done.return_value = False
+    coordinator._reconnect_task = reconnect
+    coordinator._reconnect_started = asyncio.get_event_loop().time() - 12
+
+    snapshot = coordinator.connection_diagnostics()
+
+    assert snapshot["reconnect_in_progress"] is True
+    assert snapshot["reconnect_age"] >= 12
+    assert snapshot["observer_running"] is False
+    assert snapshot["seconds_since_last_update"] is None
+    assert snapshot["watchdog_interval"] == coordinator._timeout * coordinator.missed_package_count
+
+
+async def test_failed_reconnects_and_unload_shut_each_coap_context_down_once(
+    hass: HomeAssistant,
+) -> None:
+    """Run reconnect and unload with real library clients and fake transports."""
+    contexts = [AsyncMock(spec=Context) for _ in range(3)]
+    with patch.object(Context, "create_client_context", side_effect=contexts):
+        old_client, *replacements = [await CoAPClient.create(TEST_HOST, sync=False) for _ in contexts]
+    coordinator = _make_coordinator(hass, client=old_client)
+
+    with (
+        patch.object(CoAPClient, "create", side_effect=replacements),
+        patch.object(CoAPClient, "get_status", side_effect=RuntimeError("status failed")),
+    ):
+        await coordinator._do_reconnect()
+        await coordinator._do_reconnect()
+        await coordinator.async_shutdown()
+
+    for context in contexts:
+        context.shutdown.assert_awaited_once()
+
+
+async def test_unload_cancels_reconnect_during_transport_shutdown(hass: HomeAssistant) -> None:
+    """Unload waits for the same teardown without allowing a reconnect to continue."""
+    context = AsyncMock(spec=Context)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_shutdown() -> None:
+        started.set()
+        await release.wait()
+
+    context.shutdown.side_effect = slow_shutdown
+    with patch.object(Context, "create_client_context", return_value=context):
+        client = await CoAPClient.create(TEST_HOST, sync=False)
+    coordinator = _make_coordinator(hass, client=client)
+
+    with patch.object(CoAPClient, "create") as create:
+        await coordinator._async_reconnect()
+        reconnect = coordinator._reconnect_task
+        assert reconnect is not None
+        await started.wait()
+        unload = hass.async_create_task(coordinator.async_shutdown())
+        with pytest.raises(asyncio.CancelledError):
+            await reconnect
+        release.set()
+        await unload
+
+    create.assert_not_called()
+    context.shutdown.assert_awaited_once()
+
+
+async def test_shutdown_failure_after_timeout_is_retrieved(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The real client handles a transport error after the coordinator's wait ends."""
+    context = AsyncMock(spec=Context)
+    release = asyncio.Event()
+
+    async def failing_shutdown() -> None:
+        await release.wait()
+        raise RuntimeError("late transport failure")
+
+    context.shutdown.side_effect = failing_shutdown
+    with patch.object(Context, "create_client_context", return_value=context):
+        client = await CoAPClient.create(TEST_HOST, sync=False)
+    coordinator = _make_coordinator(hass, client=client)
+
+    with caplog.at_level(logging.DEBUG, logger="philips_airctrl.coap.client"):
+        with patch(f"{_COORD}.SHUTDOWN_TIMEOUT", 0.01):
+            await coordinator.async_shutdown()
+        release.set()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+    context.shutdown.assert_awaited_once()
+    assert "CoAP context shutdown failed: RuntimeError('late transport failure')" in caplog.text

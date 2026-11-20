@@ -17,7 +17,7 @@ Read `AGENTS.md` completely before starting any work. It contains:
 - **Title:** Philips Air Purifier Integration
 - **Class prefix:** `PhilipsAirPurifier`
 - **Main code:** `custom_components/philips_airpurifier/`
-- **Upstream library:** `philips-airctrl==1.1.0` — Never bypass it
+- **Upstream library:** `philips-airctrl==1.5.0` — Never bypass it
 - **Validate:** `script/check` (type-check + lint + spell)
 - **Test:** `script/test`
 - **Run HA:** `./script/develop`
@@ -29,7 +29,7 @@ Read `AGENTS.md` completely before starting any work. It contains:
 - ✅ Use: `await self.client.get_status()`, `await self.client.observe_status()`, `await self.client.set_control_values()`
 - ❌ Never: Direct socket calls, alternative CoAP libraries, manual encryption, HTTP workarounds
 
-**If feature is missing:** Open upstream issue at [philips-airctrl/issues](https://github.com/ruaan-deysel/philips-airctrl/issues) — do not work around it.
+**If feature is missing:** Open upstream issue at [philips-airctrl/issues](https://github.com/tinkerologie/philips-airctrl/issues) — do not work around it.
 
 See `AGENTS.md` section "CRITICAL: Upstream Library Rules" for full details and examples.
 

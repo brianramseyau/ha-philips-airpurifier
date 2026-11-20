@@ -1,5 +1,21 @@
 # AI Agent Instructions
 
+## Mandatory Development Workflow for AI Agents
+
+All AI coding assistants (Claude Code, Gemini, GitHub Copilot, Cursor, Roo, Devin, etc.) MUST strictly adhere to the following workflow when working on this repository:
+
+1. Issue-First Requirement: Never start writing code or creating pull requests without an existing GitHub Issue.
+2. Issue Template: Issues must be created using the official Issue Forms (`01-bug-report.yml` for bugs or `02-enhancement-request.yml` for enhancements).
+3. CodeRabbit AI Plan: Use an available Coding Plan. If the free plan or quota cannot provide one, follow the planning and review fallback in [organisation governance](https://github.com/tinkerologie/.github/blob/main/GOVERNANCE.md#free-tier-planning-and-review). Never enable paid usage or retry repeatedly.
+4. Branch Discipline: Always create and work on a dedicated branch (`feat/<issue-id>-<description>` or `fix/<issue-id>-<description>`). NEVER commit directly to `main`.
+5. Documentation & Changelog: Update `CHANGELOG.md` under `## [Unreleased]` for any user-facing or architectural changes.
+6. Local Verification: Run all test, lint, format, and typecheck commands locally before committing. All tests must pass with zero errors and zero warnings.
+7. PR Template Completion: Always use `.github/PULL_REQUEST_TEMPLATE.md`. Complete all fields, link the issue using `Closes #<id>` or `Fixes #<id>` when the PR fully resolves it, or `Part of #<id>` for partial work (only maintainers with write access may write `None`, for housekeeping), and check all Pre-Submission Governance boxes with real terminal output.
+8. Draft PR First: ALWAYS open pull requests as DRAFT (`gh pr create --draft`).
+9. CI Verification: Wait for CI workflows to run on the draft PR and verify that all status checks pass.
+10. Ready for Review: Only mark the PR as ready for review (`gh pr ready`) once all checks pass and all due diligence is verified.
+11. Review Clearance: Review and resolve all available review comments; Copilot Free PR review is not a required service. Ensure Codecov reports show zero errors, zero warnings, and no coverage drop.
+
 This document provides guidance for AI coding agents working on this Home Assistant custom integration project.
 
 ## Project Overview
@@ -8,9 +24,11 @@ This is a Home Assistant custom integration that was generated from a blueprint 
 
 **Integration details:**
 
-- **Domain:** `philips_airpurifier_coap`
-- **Title:** Philips Air Purifier
-- **Repository:** ruaan-deysel/ha-philips-airpurifier
+- **Domain:** `philips_airpurifier`
+- **Title:** Philips AirPurifier
+- **Repository:** tinkerologie/ha-philips-airpurifier
+
+The integration controls Philips Air Purifiers over the CoAP protocol and uses the `philips-airctrl` library for device communication. It supports 62+ device models across 3 API generations (Gen1, Gen2, Gen3).
 
 **Key directories:**
 
@@ -100,10 +118,10 @@ If a developer requests something that contradicts these instructions:
 
 **Rules:**
 
-- ❌ **NEVER** create random markdown files in code directories
-- ❌ **NEVER** create documentation in `.github/` unless it's a GitHub-specified file
-- ✅ **ALWAYS ask first** before creating permanent documentation
-- ✅ **Prefer module docstrings** over separate markdown files
+- **NEVER** create random markdown files in code directories
+- **NEVER** create documentation in `.github/` unless it's a GitHub-specified file
+- **ALWAYS ask first** before creating permanent documentation
+- **Prefer module docstrings** over separate markdown files
 
 See `.github/copilot-instructions.md` for detailed documentation strategy.
 
@@ -119,14 +137,37 @@ When a task completes and the developer moves to a new topic, suggest committing
 
 See `.github/copilot-instructions.md` for commit message examples and context monitoring guidance.
 
+## Architecture
+
+### Communication Pattern
+
+- **Local push** via CoAP protocol (no cloud, no polling)
+- `CoAPClient` from `philips-airctrl` handles encryption, sync, and observe
+- Coordinator uses `observe_status()` async iterator for real-time updates
+- Watchdog monitors connection health with automatic reconnection
+
+### Device Model System
+
+Device models are data, not classes. `DEVICE_MODELS` in `device_models.py` maps each `FanModel` to a `DeviceModelConfig` (defined in `model.py`) that declares its API generation, preset modes, speeds and the entities it supports. Add or change a model by editing that data, not by subclassing.
+
+Three API generations with different key formats:
+
+- Gen1: simple keys (`pwr`, `mode`, `om`)
+- Gen2: `D01-XX`, `D03-XX` format
+- Gen3: `D01SXX`, `D03XXX` format
+
+### Config Entry Pattern
+
+Uses `entry.runtime_data` typed as `PhilipsAirPurifierConfigEntry` to store the coordinator. Entity platforms access coordinator directly from the config entry.
+
 ## Custom Integration Flexibility
 
 **This is a CUSTOM integration, not a Home Assistant Core integration.** While we follow Core patterns for quality and maintainability, we have more flexibility in implementation decisions:
 
 **Third-party libraries (PyPI):**
 
-- ✅ Prefer existing PyPI libraries when maintained and fit the use case
-- ✅ Build custom API client when:
+- Prefer existing PyPI libraries when maintained and fit the use case
+- Build custom API client when:
   - Device/service uses simple REST API or GraphQL (HTTP, JSON)
   - Available libraries are unmaintained, bloated, or poorly designed
   - Using aiohttp + json is more maintainable than a framework
@@ -142,9 +183,9 @@ See `.github/copilot-instructions.md` for commit message examples and context mo
 
 As an AI agent, **aim for Silver or Gold Quality Scale** when generating code:
 
-- ✅ **Always implement:** Type hints, async patterns, proper error handling, service registration in `async_setup()`, diagnostics with `async_redact_data()`, device info
-- 🎯 **When applicable:** Config flow with validation, reauth flow, discovery support, repair flows
-- 📋 **Can defer:** Multiple config entries, advanced discovery, YAML import, extensive test coverage
+- **Always implement:** Type hints, async patterns, proper error handling, service registration in `async_setup()`, diagnostics with `async_redact_data()`, device info
+- **When applicable:** Config flow with validation, reauth flow, discovery support, repair flows
+- **Can defer:** Multiple config entries, advanced discovery, YAML import, extensive test coverage
 
 **Developer expectation:** Generate production-ready code. Implement HA standards with reasonable effort.
 
@@ -157,6 +198,8 @@ As an AI agent, **aim for Silver or Gold Quality Scale** when generating code:
 **YAML:** 2 spaces, modern HA syntax (no legacy `platform:` style)
 
 **JSON:** 2 spaces, no trailing commas, no comments
+
+**Tooling:** Python 3.14.2+, `uv` for dependency management
 
 **Validation:** Run `script/check` before committing (runs type-check + lint + spell)
 
@@ -180,51 +223,37 @@ As an AI agent, **aim for Silver or Gold Quality Scale** when generating code:
 
 This integration uses the following identifiers consistently:
 
-- **Domain:** `philips_airpurifier_coap`
-- **Title:** Philips Air Purifier
+- **Domain:** `philips_airpurifier`
+- **Title:** Philips AirPurifier
 - **Class prefix:** `PhilipsAirPurifier`
 
 **When creating new files:**
 
-- Use the domain `philips_airpurifier_coap` for all DOMAIN references
+- Use the domain `philips_airpurifier` (`DOMAIN` in `const.py`) for all DOMAIN references
 - Prefix all integration-specific classes with `PhilipsAirPurifier`
-- Use "Integration Blueprint" as the display title
+- Use "Philips AirPurifier" as the display title (`manifest.json`)
 - Never hardcode different values
 
 ### Integration Structure
 
-**Package organization (DO NOT create other packages):**
+**Module layout (flat, one module per concern):**
 
-- `api/` - API client and exceptions
-- `coordinator/` - Data update coordinator
-- `config_flow_handler/` - Config flow, options, validators, schemas
-  - `validators/*.py` - Config flow validation functions
-  - `schemas/*.py` - Data schemas for config flow steps
-- `entity/` - Base entity classes
-- `entity_utils/` - Entity-specific helpers (device_info, state formatting)
-- `[platform]/` - Entity platforms (sensor, switch, etc.)
-- `service_actions/` - Service action implementations
-- `utils/` - Integration-wide utilities (string helpers, general validators)
+- `client.py` - CoAP client wrapper around `philips-airctrl`
+- `coordinator.py` - Data update coordinator
+- `config_flow.py` - Config flow and options flow
+- `entity.py` - Base entity class (`PhilipsAirPurifierEntity`)
+- `model.py`, `device_models.py` - Device model data (`DeviceModelConfig`, `DEVICE_MODELS`)
+- `<platform>.py` - Entity platforms (`fan.py`, `sensor.py`, `switch.py`, ...)
+- `services.py` - Service action handlers
+- `helpers.py` - Integration-wide helpers
+- `diagnostics.py`, `repairs.py` - Diagnostics and repair issues
 
-**Do NOT create:**
-
-- `helpers/`, `ha_helpers/`, or similar packages - use `utils/` or `entity_utils/` instead
-- `common/`, `shared/`, `lib/` - use existing packages above
-- New top-level packages without explicit approval
+Put new code in the matching module. Do not add packages or new top-level modules without explicit approval.
 
 **Key patterns:**
 
 - Entities → Coordinator → API Client (never skip layers)
-- Each platform in own directory with `__init__.py`
-- One entity class per file for clarity
-- Individual entity classes in separate files (e.g., `air_quality.py`)
 - Use `EntityDescription` dataclasses for static entity metadata
-
-**Code organization principles:**
-
-- Keep files focused (200-400 lines per file)
-- One class per file for entity implementations
-- Split large modules into smaller ones when needed
 
 **For detailed patterns, see:**
 
@@ -312,7 +341,7 @@ python3 -m script.scaffold config_flow_oauth2     # OAuth2 flow
 
 **Config flow:**
 
-- Implement in `config_flow_handler/` package
+- Implement in `config_flow.py`
 - Support user setup, discovery, reauth, reconfigure
 - Always set unique_id for discovered entries
 
@@ -321,7 +350,7 @@ See `.github/instructions/config_flow.instructions.md` for comprehensive pattern
 **Service actions:**
 
 - Define in `services.yaml` with full descriptions (legacy filename)
-- Implement handlers in `service_actions/` directory
+- Implement handlers in `services.py`
 - **Register in `async_setup()`** - NOT in `async_setup_entry()` (Quality Scale!)
 - Format: `<integration_domain>.<action_name>`
 
@@ -337,9 +366,10 @@ See `.github/instructions/coordinator.instructions.md` and `.github/instructions
 
 **Entities:**
 
-- Inherit from platform base + `IntegrationBlueprintEntity`
+- Inherit from platform base + `PhilipsAirPurifierEntity` (`entity.py`)
 - Read from `coordinator.data`, never call API directly
 - Use `EntityDescription` for static metadata
+- Platforms follow HA patterns: `async_setup_entry()` → create entities → `async_add_entities()`
 
 See `.github/instructions/entities.instructions.md` for entity patterns.
 
@@ -376,13 +406,15 @@ See `.github/instructions/repairs.instructions.md` for comprehensive patterns.
 
 **YAML Configuration:**
 
-⚠️ **DEPRECATED** for integrations communicating with devices/services (ADR-0010)
+️ **DEPRECATED** for integrations communicating with devices/services (ADR-0010)
 
 - New integrations MUST use config flow
 - Existing YAML integrations should migrate to config flow
 - Only helpers and system integrations may use YAML
 
 ## Validation Scripts
+
+**First-time setup:** `script/setup` installs dependencies with `uv` and sets up pre-commit hooks.
 
 **Before committing, run:**
 
@@ -396,7 +428,7 @@ script/test       # Run unit tests
 **Configured tools:**
 
 - **Ruff** - Fast Python linter and formatter ([Rules Reference](https://docs.astral.sh/ruff/rules/))
-- **Pyright** - Type checker configured for "basic" mode ([Docs](https://microsoft.github.io/pyright/))
+- **Pyright** - Type checker configured for "strict" mode (`pyrightconfig.json`) ([Docs](https://microsoft.github.io/pyright/))
 - **pytest** - Test runner with async support ([Docs](https://docs.pytest.org/))
 
 **Generate code that passes these checks on first run.** As an AI agent, you should produce higher quality code than manual development:
@@ -487,7 +519,7 @@ See `.github/instructions/tests.instructions.md` for comprehensive testing patte
 
 **How to warn:**
 
-> "⚠️ This change will modify the entity ID format from `sensor.device_name` to `sensor.device_name_sensor`. Existing users' automations and dashboards will break. Should I proceed, or would you prefer a migration path?"
+> "️ This change will modify the entity ID format from `sensor.device_name` to `sensor.device_name_sensor`. Existing users' automations and dashboards will break. Should I proceed, or would you prefer a migration path?"
 
 **When breaking changes are necessary:**
 
@@ -516,10 +548,11 @@ See `.github/instructions/tests.instructions.md` for comprehensive testing patte
 - Propose a plan first before starting implementation
 - Get explicit confirmation from developer
 
-**Important: Do NOT create or modify tests unless explicitly requested.** Focus on implementing functionality. The developer decides when and if tests are needed.
+**Tests:** add or update tests for the code you change. Codecov's `codecov/patch` check requires at least 90% of changed lines to be covered (see the organization GOVERNANCE.md), and `pyproject.toml` sets `fail_under = 100`.
 
 **Translation strategy:**
 
+- Translations live in the `translations/` directory (en, de, bg, etc.)
 - Use placeholders in code (e.g., `"config.step.user.title"`) - functionality works without translations
 - Update `en.json` only when asked or at major feature completion
 - NEVER update other language files automatically - extremely time-consuming
@@ -580,3 +613,36 @@ See `.github/copilot-instructions.md` for detailed workflow guidance.
 - [Pyright Configuration](https://microsoft.github.io/pyright/#/configuration) - Type checker documentation
 - [pytest Documentation](https://docs.pytest.org/) - Testing framework
 - See `CONTRIBUTING.md` for contribution guidelines
+
+## Issue and Pull Request Governance
+
+These rules apply to every contributor, including AI coding agents. The full org-wide rules are in
+[GOVERNANCE.md](https://github.com/tinkerologie/.github/blob/main/GOVERNANCE.md).
+
+1. **Issue first.** Open an issue with the bug or enhancement template before opening a pull
+   request. Keep the title prefix `[Bug]:` or `[Enhancement]:`, followed by a space and the title.
+   Automation applies the `bug` or `enhancement` label when it can tell the type, and CodeRabbit
+   may post a Coding Plan on the issue. Use it when available; otherwise follow the free-tier planning and review fallback in the linked organisation governance. The labeler skips issues labeled
+   `question`, `duplicate`, `invalid`, `wontfix`, or `no-type`, and never re-adds a type label that
+   a maintainer removed.
+2. **Link the issue.** In the PR's **Related Issues** section, write `Closes #<number>` (or `Fixes`
+   or `Resolves`) when the PR completely resolves the issue; these keywords close it on merge. Use
+   `Part of #<number>` or `Related to #<number>` for partial work. The linked issue must exist; an
+   issue in another public repository (`owner/repo#123`) is fine. Only authors with write access or
+   higher (maintainers) may write `None`, for housekeeping such as CI,
+   documentation, or dependency updates; PR governance rejects `None` from everyone else.
+3. **One change at a time.** Contributors without write access can have at most 2 open, non-draft
+   pull requests here. GitHub enforces this limit, and draft pull requests do not count toward it.
+   Do not open PRs that edit the same files as another open PR, such as `CHANGELOG.md`,
+   translations, `README.md`, or generated bundles. Wait for the first to merge, rebase, then
+   continue.
+4. **Act on the Tinkerologie-Bot report.** When PR governance fails, Tinkerologie-Bot posts one comment
+   listing every problem as a numbered item. Fix each item by editing the PR description or pushing
+   the missing change; the check re-runs and the comment updates to passed.
+5. **Rebase before review.** Rebase on `main` before marking a PR ready for review.
+6. **Resolve conflicts first.** When a PR gets the `conflicts` label, rebase on `main`,
+   resolve the conflicts (keep every `CHANGELOG.md` entry under `[Unreleased]`), re-run the tests,
+   and force-push before doing any other work.
+7. **Stale items.** Issues and PRs with no activity for 14 days are labeled `stale` and closed 30
+   days later unless there is new activity. These labels are exempt:
+   - Stale exemptions follow the [organisation's protected-label policy](https://github.com/tinkerologie/.github/blob/main/GOVERNANCE.md#5-stale-items), including Matt Pocock workflow states. Repository-specific exemptions are in `.github/workflows/stale.yml`.

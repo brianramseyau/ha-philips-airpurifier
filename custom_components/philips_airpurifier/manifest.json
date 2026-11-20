@@ -1,9 +1,14 @@
 {
   "domain": "philips_airpurifier",
   "name": "Philips AirPurifier",
-  "codeowners": ["@brianramseyau"],
+  "codeowners": [
+    "@brianramseyau"
+  ],
   "config_flow": true,
-  "dependencies": [],
+  "dependencies": [
+    "frontend",
+    "http"
+  ],
   "dhcp": [
     {
       "macaddress": "B0F893*"
@@ -28,6 +33,8 @@
   "integration_type": "device",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/brianramseyau/ha-philips-airpurifier/issues",
-  "requirements": ["philips-airctrl==1.2.0"],
-  "version": "2026.10.4"
+  "requirements": [
+    "philips-airctrl==1.5.0"
+  ],
+  "version": "2026.11.1"
 }

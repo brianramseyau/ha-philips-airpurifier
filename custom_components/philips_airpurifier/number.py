@@ -5,9 +5,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from homeassistant.components.number import NumberEntity
-from homeassistant.components.number.const import NumberMode
-from homeassistant.const import ATTR_DEVICE_CLASS, ATTR_ICON, CONF_ENTITY_CATEGORY
+from homeassistant.components.number import NumberEntity, NumberMode
+from homeassistant.const import ATTR_DEVICE_CLASS, CONF_ENTITY_CATEGORY
 
 from .const import NUMBER_TYPES, FanAttributes
 from .entity import PhilipsAirPurifierEntity
@@ -22,11 +21,6 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 PARALLEL_UPDATES = 0
-
-NUMBER_ICON_FALLBACKS: dict[str, str] = {
-    FanAttributes.OSCILLATION: "mdi:rotate-right",
-    FanAttributes.TARGET_TEMP: "mdi:thermometer",
-}
 
 
 async def async_setup_entry(
@@ -44,7 +38,7 @@ async def async_setup_entry(
     async_add_entities(PhilipsNumber(coordinator, kind) for kind in NUMBER_TYPES if kind in configured_numbers)
 
 
-class PhilipsNumber(PhilipsAirPurifierEntity, NumberEntity):
+class PhilipsNumber(PhilipsAirPurifierEntity, NumberEntity):  # pyright: ignore[reportIncompatibleVariableOverride]
     """Philips AirPurifier number."""
 
     def __init__(
@@ -59,11 +53,6 @@ class PhilipsNumber(PhilipsAirPurifierEntity, NumberEntity):
         self._attr_device_class = self._description.get(ATTR_DEVICE_CLASS)
         self._attr_translation_key = self._description.get(FanAttributes.LABEL)
         self._attr_entity_category = self._description.get(CONF_ENTITY_CATEGORY)
-        self._attr_icon = self._description.get(ATTR_ICON)
-        if self._attr_icon is None:
-            label = self._description.get(FanAttributes.LABEL)
-            if isinstance(label, str):
-                self._attr_icon = NUMBER_ICON_FALLBACKS.get(label)
         self._attr_mode = NumberMode.SLIDER
         self._attr_native_unit_of_measurement = self._description.get(FanAttributes.UNIT)
 
@@ -76,7 +65,7 @@ class PhilipsNumber(PhilipsAirPurifierEntity, NumberEntity):
         self.kind = kind.partition("#")[0]
 
     @property
-    def native_value(self) -> float | None:
+    def native_value(self) -> float | None:  # pyright: ignore[reportIncompatibleVariableOverride]
         """Return the current number."""
         value = self._device_status.get(self.kind)
         return None if value is None else float(value)

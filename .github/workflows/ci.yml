@@ -1,0 +1,236 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ruff:
+    timeout-minutes: 30
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure git default branch
+        run: git config --global init.defaultBranch main
+
+      - name: Checkout the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Configure git safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+
+      - name: Set up Python
+        run: uv python install 3.14
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Format
+        run: uv run ruff format . --check
+
+  type-check:
+    timeout-minutes: 30
+    name: Type check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+
+      - name: Set up Python
+        run: uv python install 3.14
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Install Pyright
+        run: npm ci --ignore-scripts
+
+      - name: Pyright (strict)
+        run: npx --no-install pyright --pythonpath .venv/bin/python
+
+  test:
+    timeout-minutes: 30
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure git default branch
+        run: git config --global init.defaultBranch main
+
+      - name: Checkout the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Configure git safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+
+      - name: Set up Python
+        run: uv python install 3.14
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run tests and generate coverage report
+        run: uv run pytest tests --cov --cov-report=xml --cov-report=term
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          retention-days: 7
+          name: coverage
+          path: coverage.xml
+          if-no-files-found: error
+
+  codecov:
+    timeout-minutes: 30
+    name: Coverage
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # check out the repository
+      id-token: write # Codecov OIDC upload
+    env:
+      # OIDC is unavailable to fork and Dependabot PRs; those fall back to tokenless uploads.
+      CODECOV_OIDC: ${{ !(github.event_name == 'pull_request' && (github.event.pull_request.head.repo.fork || github.event.pull_request.user.login == 'dependabot[bot]')) }}
+    steps:
+      # Checkout only provides the file list Codecov needs to map report paths; no PR code runs here.
+      - name: Checkout the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download coverage artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        continue-on-error: ${{ env.CODECOV_OIDC != 'true' }}
+        with:
+          slug: ${{ github.repository }}
+          files: ./coverage.xml
+          use_oidc: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+          fail_ci_if_error: false
+
+  frontend:
+    timeout-minutes: 30
+    name: Dashboard cards
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install card dependencies
+        run: npm ci
+        working-directory: frontend
+      - name: Check formatting
+        run: npm run format:check
+        working-directory: frontend
+      - name: Check TypeScript 7 types
+        run: npm run typecheck
+        working-directory: frontend
+      - name: Bound package mirror downloads
+        run: |
+          cat <<'EOF' | sudo tee /etc/apt/apt.conf.d/80-ci-downloads >/dev/null
+          Acquire::Retries "2";
+          Acquire::http::Timeout "30";
+          Acquire::https::Timeout "30";
+          EOF
+      - name: Install Chromium
+        timeout-minutes: 10
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - name: Run browser tests
+        run: npm test
+        working-directory: frontend
+      # The whole tree is audited, dev toolchain included, because it builds the
+      # shipped bundle. Low-severity findings without a fix (such as deepmerge
+      # GHSA-gcqx-w48m-w2h4 via @web/test-runner) would otherwise block every PR.
+      - name: Check dependencies
+        run: npm audit --audit-level=moderate
+        working-directory: frontend
+      - name: Rebuild bundled cards
+        run: npm run build
+        working-directory: frontend
+      - name: Verify packaged bundle is current
+        run: git diff --exit-code -- custom_components/philips_airpurifier/frontend/
+
+  minimum-version:
+    timeout-minutes: 30
+    name: Home Assistant 2026.9 minimum
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Set up Python
+        run: uv python install 3.14
+      - name: Test minimum supported Home Assistant
+        run: ./script/test-minimum
+
+  ci-gate:
+    name: CI Gate
+    if: ${{ always() }}
+    needs: ["ruff", "type-check", "test", "codecov", "frontend", "minimum-version"]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Require successful validation
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          ALLOWED_SKIPS: ${{ '[]' }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, sys
+          results = json.loads(os.environ['RESULTS'])
+          allowed_skips = set(json.loads(os.environ['ALLOWED_SKIPS']))
+          failures = {name: job['result'] for name, job in results.items()
+                      if job['result'] != 'success'
+                      and not (job['result'] == 'skipped' and name in allowed_skips)}
+          if not results or failures:
+              print(f'::error::Required CI did not pass: {failures or "no results"}')
+              sys.exit(1)
+          print('All required CI jobs passed (only documented event skips allowed).')
+          PYTHON

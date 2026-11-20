@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.philips_airpurifier.const import (
     CONF_DEVICE_ID,
@@ -19,9 +18,26 @@ from homeassistant.const import CONF_HOST, CONF_NAME
 from homeassistant.core import HomeAssistant
 
 from .const import MOCK_STATUS_GEN1, TEST_DEVICE_ID, TEST_HOST, TEST_MODEL, TEST_NAME
+from .fixtures.deprecations import HANDLER as DEPRECATION_REPORTS
+
+from tests.harness import USING_LEGACY_HARNESS, MockConfigEntry, mock_component
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+
+
+@pytest.fixture(autouse=True)
+def fail_on_ha_deprecation_reports() -> Generator[None]:
+    """Fail when Home Assistant logs deprecated use by this integration.
+
+    Reports logged while modules were imported surface on the first test.
+    """
+    yield
+    if reports := DEPRECATION_REPORTS.pop_reports():
+        pytest.fail(
+            "Home Assistant reported deprecated use by philips_airpurifier:\n" + "\n".join(reports),
+            pytrace=False,
+        )
 
 
 @pytest.fixture
@@ -102,9 +118,11 @@ def mock_coap_client_config_flow() -> Generator[AsyncMock]:
         yield client
 
 
-@pytest.fixture(autouse=True)
-def auto_enable_custom_integrations(enable_custom_integrations: None) -> None:
-    """Enable custom integrations for all tests."""
+if USING_LEGACY_HARNESS:
+
+    @pytest.fixture(autouse=True)
+    def auto_enable_custom_integrations(enable_custom_integrations: None) -> None:
+        """Enable custom integrations on the minimum Home Assistant release."""
 
 
 @pytest.fixture
@@ -122,3 +140,11 @@ async def init_integration(
     assert mock_config_entry.state is ConfigEntryState.LOADED
 
     return mock_config_entry
+
+
+@pytest.fixture(autouse=True)
+def mock_dashboard_delivery(hass: HomeAssistant) -> Generator[AsyncMock]:
+    """Keep frontend dependencies out of device tests; delivery is tested separately."""
+    mock_component(hass, "frontend")
+    with patch("custom_components.philips_airpurifier.async_register_frontend", new_callable=AsyncMock) as register:
+        yield register

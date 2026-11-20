@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from unittest.mock import patch
-
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.philips_airpurifier.diagnostics import (
     async_get_config_entry_diagnostics,
@@ -13,7 +10,9 @@ from custom_components.philips_airpurifier.diagnostics import (
 from homeassistant.components.diagnostics import REDACTED
 from homeassistant.core import HomeAssistant
 
-from .const import TEST_DEVICE_ID, TEST_HOST, TEST_MODEL, TEST_NAME
+from .const import TEST_DEVICE_ID, TEST_HOST, TEST_MODEL
+
+from tests.harness import MockConfigEntry
 
 
 async def test_diagnostics_data_structure(
@@ -98,14 +97,14 @@ async def test_diagnostics_device_info(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,
 ) -> None:
-    """Test that model and name are present and not redacted."""
+    """Test that model stays useful while user-provided names are redacted."""
     result = await async_get_config_entry_diagnostics(hass, init_integration)
 
     # Model and name should be present and not redacted
     assert result["device_info"]["model"] == TEST_MODEL
-    assert result["device_info"]["name"] == TEST_NAME
+    assert result["device_info"]["name"] == REDACTED
     assert result["configuration"]["model"] == TEST_MODEL
-    assert result["configuration"]["name"] == TEST_NAME
+    assert result["configuration"]["name"] == REDACTED
 
 
 async def test_diagnostics_coordinator_info(
@@ -191,7 +190,7 @@ async def test_diagnostics_status_data(
 
     # Verify name in status is NOT redacted (name is not in TO_REDACT)
     if "name" in result["device_status"]:
-        assert result["device_status"]["name"] == TEST_NAME
+        assert result["device_status"]["name"] == REDACTED
 
 
 async def test_diagnostics_configuration_flags(
@@ -214,16 +213,50 @@ async def test_diagnostics_empty_status_and_no_device_entry_branch(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,
 ) -> None:
-    """Test diagnostics branch paths when device lookup fails and status is empty."""
+    """Test diagnostics branch paths when no device entry exists and status is empty."""
     coordinator = init_integration.runtime_data
     coordinator.data = {}
 
     with patch(
-        "custom_components.philips_airpurifier.diagnostics.dr.async_get",
-        return_value=SimpleNamespace(devices={}),
+        "custom_components.philips_airpurifier.diagnostics.dr.async_entries_for_config_entry",
+        return_value=[],
     ):
         result = await async_get_config_entry_diagnostics(hass, init_integration)
 
     assert result["coordinator"]["has_data"] is False
     assert result["coordinator"]["status_keys"] == []
     assert result["device_registry"] == {}
+
+
+async def test_full_diagnostics_payload_removes_identifying_values(
+    hass: HomeAssistant, init_integration: MockConfigEntry
+) -> None:
+    """Serializing diagnostics must not reveal identifiers nested in device status."""
+    import json
+
+    coordinator = init_integration.runtime_data
+    coordinator.data.update(
+        {"macaddress": "ab:cd:ef:12:34:56", "D01S03": "Private room", "D01S05": "private-device-id"}
+    )
+    result = await async_get_config_entry_diagnostics(hass, init_integration)
+    payload = json.dumps(result)
+    for value in [TEST_HOST, TEST_DEVICE_ID, "ab:cd:ef:12:34:56", "Private room", "private-device-id"]:
+        assert value not in payload
+
+
+async def test_diagnostics_connection_lifecycle(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+) -> None:
+    """Diagnostics export the connection lifecycle without the device host."""
+    coordinator = init_integration.runtime_data
+    coordinator._last_reconnect_error = {"stage": "create", "type": "TimeoutError"}
+
+    result = await async_get_config_entry_diagnostics(hass, init_integration)
+
+    connection = result["connection"]
+    assert connection["available"] is True
+    assert connection["watchdog_enabled"] is True
+    assert connection["last_reconnect_error"]["stage"] == "create"
+    assert TEST_HOST not in str(connection)
+    assert result["coordinator"]["client_available"] is connection["available"]
