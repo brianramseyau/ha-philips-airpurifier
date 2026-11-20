@@ -15,7 +15,7 @@ and this project adheres to [Calendar Versioning](https://calver.org/) (`YYYY.MM
   Home Assistant 2026.11 readiness, CX5120 reconnect and swing fixes, and dependency updates.
 - The **Lamp mode** select (`Off` / `Humidity` / `Ambient`) is a primary device control
   rather than a configuration entity. Affects HU1509/HU1510, HU4209/00 and HU5710.
-- Fork builds keep the fork's manifest identity and require Home Assistant 2026.10.0.
+- Fork builds keep the fork's manifest identity and support Home Assistant 2026.9.0 or later.
 
 ### Fixed
 
